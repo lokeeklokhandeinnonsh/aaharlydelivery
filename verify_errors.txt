@@ -1,0 +1,1 @@
+﻿src/screens/VerifyScreen.tsx(116,27): error TS2503: Cannot find namespace 'NodeJS'.
