@@ -2,7 +2,7 @@ import axios, { InternalAxiosRequestConfig, AxiosError } from 'axios';
 import { useAuthStore } from '../../store/authStore';
 
 // Base URL for the backend API
-export const BASE_URL = 'http://10.0.2.2:4000';
+export const BASE_URL = 'https://api.aaharly.com';
 
 const apiClient = axios.create({
     baseURL: BASE_URL,
