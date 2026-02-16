@@ -14,7 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /** Backend API base URL - update for production */
 // Using 10.0.2.2 for Android Emulator to access localhost
-const API_BASE_URL = 'http://10.0.2.2:4000/api/v1';
+const API_BASE_URL = 'https://api.aaharly.com/api/v1';
 
 /** Request timeout in milliseconds */
 const REQUEST_TIMEOUT = 15000;
