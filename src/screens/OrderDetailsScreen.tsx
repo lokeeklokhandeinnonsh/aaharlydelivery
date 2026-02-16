@@ -43,13 +43,17 @@ const OrderDetailsScreen = () => {
     // GPS Hooks
     const {
         location,
-        fetchLocation,
+        distance: liveDistance,
+        startWatching,
+        stopWatching,
         status: locationStatus,
         error: locationError,
         isLoading: isGpsLoading
     } = useLocation({
         autoFetch: false,
-        timeout: 10000
+        timeout: 10000,
+        targetLat: (order as any).latitude || 0,
+        targetLng: (order as any).longitude || 0
     });
 
     // State
@@ -67,36 +71,21 @@ const OrderDetailsScreen = () => {
      */
     useFocusEffect(
         useCallback(() => {
-            checkProximity();
-        }, [])
+            startWatching();
+            return () => {
+                stopWatching();
+            };
+        }, [startWatching, stopWatching])
     );
 
-    const checkProximity = async () => {
-        setVerificationLoading(true);
-        // Only fetch if screen is focused
-        const loc = await fetchLocation();
-
-        if (loc) {
-            try {
-                // Determine if we should verify against backend
-                const response = await verifyLocation({
-                    deliveryId: orderId,
-                    currentLatitude: loc.latitude,
-                    currentLongitude: loc.longitude,
-                    accuracy: loc.accuracy
-                });
-
-                setDistance(response.distance);
-                setIsVerified(response.verified);
-                setLastUpdated(new Date());
-
-            } catch (error) {
-                console.log('Verification check failed (likely mock ID):', error);
-                setDistance(null);
-            }
+    // Live Distance Updates
+    useEffect(() => {
+        if (liveDistance !== null) {
+            setDistance(liveDistance);
+            setIsVerified(liveDistance <= 25);
+            setLastUpdated(new Date());
         }
-        setVerificationLoading(false);
-    };
+    }, [liveDistance]);
 
     const handleNavigate = () => {
         // Use coordinates if available, otherwise fallback to address query (though requirements say use lat/lng)

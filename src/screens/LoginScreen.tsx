@@ -8,6 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Logo from '../components/Logo';
 import { authApi } from '../services/api/authApi';
+import { useAuthStore } from '../store/authStore';
 
 const LoginScreen = () => {
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
@@ -26,7 +27,9 @@ const LoginScreen = () => {
         setErrorMessage('');
 
         try {
-            await authApi.login({ email, password });
+            const response = await authApi.login({ email, password });
+            useAuthStore.getState().setAuth(response.vendor, response.accessToken);
+
             // Success - Navigation handled by App.tsx typically watching auth state, 
             // but for now we manually replace.
             navigation.replace('MainTabs');

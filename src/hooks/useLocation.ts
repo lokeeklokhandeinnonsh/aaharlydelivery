@@ -14,6 +14,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Platform, Linking, Alert, PermissionsAndroid, AppState, AppStateStatus } from 'react-native';
 import Geolocation, { GeoPosition, GeoError } from 'react-native-geolocation-service';
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
+import { getDistance } from '../utils/geo';
 
 // ============================================================================
 // Types
@@ -52,6 +53,10 @@ export interface UseLocationOptions {
     timeout?: number;
     /** Fetch location on mount (default: false) */
     autoFetch?: boolean;
+    /** Target Latitude for distance calc */
+    targetLat?: number;
+    /** Target Longitude for distance calc */
+    targetLng?: number;
 }
 
 export interface UseLocationReturn {
@@ -71,6 +76,14 @@ export interface UseLocationReturn {
     openSettings: () => void;
     /** Clear current location data */
     clearLocation: () => void;
+    /** Distance from target in meters */
+    distance: number | null;
+    /** Start continuous tracking */
+    startWatching: () => Promise<void>;
+    /** Stop continuous tracking */
+    stopWatching: () => void;
+    /** Whether currently watching */
+    isWatching: boolean;
 }
 
 // ============================================================================
@@ -95,10 +108,13 @@ export function useLocation(options: UseLocationOptions = {}): UseLocationReturn
     } = options;
 
     const [location, setLocation] = useState<LocationData | null>(null);
+    const [distance, setDistance] = useState<number | null>(null);
     const [status, setStatus] = useState<LocationStatus>('idle');
     const [error, setError] = useState<LocationError | null>(null);
+    const [isWatching, setIsWatching] = useState(false);
 
     const retryCount = useRef(0);
+    const watchId = useRef<number | null>(null);
     const isMounted = useRef(true);
     const appState = useRef(AppState.currentState);
 
@@ -370,8 +386,87 @@ export function useLocation(options: UseLocationOptions = {}): UseLocationReturn
     /**
      * Clear current location data.
      */
+    /**
+     * Start continuous GPS tracking
+     */
+    const startWatching = useCallback(async () => {
+        if (isWatching || watchId.current !== null) return;
+
+        const hasPermission = await requestPermission();
+        if (!hasPermission) return;
+
+        setStatus('fetching');
+        setIsWatching(true);
+        setError(null);
+
+        watchId.current = Geolocation.watchPosition(
+            (position) => {
+                if (!isMounted.current) return;
+
+                const { latitude, longitude, accuracy } = position.coords;
+                const locationData: LocationData = {
+                    latitude,
+                    longitude,
+                    accuracy: accuracy || 0,
+                    timestamp: position.timestamp,
+                };
+
+                setLocation(locationData);
+                setStatus('success');
+
+                if (targetAccuracy && (accuracy || 100) > targetAccuracy) {
+                    // We still update location but maybe warn? 
+                    // For watching, we usually accept stream but filter in UI.
+                }
+
+                if (options.targetLat && options.targetLng) {
+                    const dist = getDistance(latitude, longitude, options.targetLat, options.targetLng);
+                    setDistance(dist);
+                }
+            },
+            (err) => {
+                console.warn('Watch error', err);
+                // Don't stop watching on minor errors, but update status if needed
+                if (err.code === 1) { // Permission revoked
+                    stopWatching();
+                    setStatus('permission_denied');
+                }
+            },
+            {
+                enableHighAccuracy: true,
+                distanceFilter: 10,
+                interval: 5000,
+                fastestInterval: 2000,
+                showLocationDialog: true
+            }
+        );
+
+    }, [requestPermission, options.targetLat, options.targetLng, targetAccuracy, isWatching]);
+
+    /**
+     * Stop continuous GPS tracking
+     */
+    const stopWatching = useCallback(() => {
+        if (watchId.current !== null) {
+            Geolocation.clearWatch(watchId.current);
+            watchId.current = null;
+        }
+        setIsWatching(false);
+        if (status === 'fetching') setStatus('idle');
+    }, [status]);
+
+    // Cleanup watch on unmount
+    useEffect(() => {
+        return () => {
+            if (watchId.current !== null) {
+                Geolocation.clearWatch(watchId.current);
+            }
+        };
+    }, []);
+
     const clearLocation = useCallback(() => {
         setLocation(null);
+        setDistance(null);
         setStatus('idle');
         setError(null);
         retryCount.current = 0;
@@ -386,6 +481,10 @@ export function useLocation(options: UseLocationOptions = {}): UseLocationReturn
         requestPermission,
         openSettings,
         clearLocation,
+        distance,
+        startWatching,
+        stopWatching,
+        isWatching
     };
 }
 

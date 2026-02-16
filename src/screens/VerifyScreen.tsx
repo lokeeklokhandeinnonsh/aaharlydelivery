@@ -71,13 +71,14 @@ const VerifyScreen = () => {
     // GPS Hook
     const {
         location,
-        fetchLocation,
+        startWatching,
+        stopWatching,
         status: locationStatus,
         error: locationError,
         openSettings
     } = useLocation({
         targetAccuracy: 50,
-        autoFetch: true,
+        autoFetch: false,
         timeout: 10000
     });
 
@@ -120,21 +121,21 @@ const VerifyScreen = () => {
      */
     useFocusEffect(
         useCallback(() => {
+            startWatching();
+
             let interval: ReturnType<typeof setInterval>;
 
-            const checkLocation = async () => {
-                if (isCompleting) return; // Don't check if completing
+            const checkBackendVerification = async () => {
+                if (isCompleting || !location) return;
 
-                // Silent fetch if we already have location, otherwise normal
-                const loc = await fetchLocation();
-
-                if (loc && loc.accuracy <= 50) {
+                // Only verify if accuracy is good
+                if (location.accuracy <= 50) {
                     try {
                         const response = await verifyLocation({
                             deliveryId: params.orderId,
-                            currentLatitude: loc.latitude,
-                            currentLongitude: loc.longitude,
-                            accuracy: loc.accuracy,
+                            currentLatitude: location.latitude,
+                            currentLongitude: location.longitude,
+                            accuracy: location.accuracy,
                         });
 
                         setDistance(response.distance);
@@ -143,33 +144,32 @@ const VerifyScreen = () => {
                         setLastError('');
 
                         // Animate Progress Bar
-                        const maxDist = 200; // Cap at 200m for visual
+                        const maxDist = 200;
                         const dist = response.distance;
                         const progress = Math.max(0, Math.min(1, 1 - (dist / maxDist)));
 
                         Animated.timing(progressAnim, {
                             toValue: progress,
                             duration: 500,
-                            useNativeDriver: false, // width doesn't support native driver
+                            useNativeDriver: false,
                         }).start();
 
                     } catch (err) {
                         console.log('Verify Error:', err);
-                        // Don't show blocking error on periodic updates
                     }
                 } else if (locationError) {
                     setLastError(getErrorTitle(locationError.type));
                 }
             };
 
-            // Initial check
-            checkLocation();
+            // Interval to ping backend
+            interval = setInterval(checkBackendVerification, 5000);
 
-            // Interval
-            interval = setInterval(checkLocation, 5000);
-
-            return () => clearInterval(interval);
-        }, [params.orderId, isCompleting, locationError])
+            return () => {
+                stopWatching();
+                clearInterval(interval);
+            };
+        }, [startWatching, stopWatching, location, isCompleting, locationError, params.orderId])
     );
 
     /**
