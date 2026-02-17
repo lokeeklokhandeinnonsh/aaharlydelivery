@@ -1,13 +1,8 @@
 /**
- * VerifyScreen - Legacy UI Restoration
+ * VerifyScreen - Location Verification
  * 
- * Restored "Location Check" UI design with:
- * - Circular Pulse Icon
- * - Proximity Progress Bar
- * - Map Preview Placeholder -> Replaced with Navigate Button
- * - "Continue" flow
- * 
- * Integrates with stabilized GPS logic (useLocation).
+ * Verifies if the rider is at the correct location.
+ * Uses real API verification and GPS data.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -22,51 +17,37 @@ import {
     Animated,
     Easing,
     Linking,
-    Platform
 } from 'react-native';
 
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../theme/colors';
-import { fonts } from '../theme/fonts';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-// Removed MapView imports
-import LinearGradient from 'react-native-linear-gradient'; // Added for button gradient
+import LinearGradient from 'react-native-linear-gradient';
 
 // GPS Hook & API
 import { useLocation, getErrorTitle } from '../hooks/useLocation';
 import {
     verifyLocation,
     completeDelivery,
-    VerifyLocationResponse,
     formatDistance
 } from '../services/api/deliveryApi';
 import { ApiError } from '../services/api/apiClient';
-import { mockOrders } from '../data/mockOrders'; // Import mock data for coordinates
 
 const { width } = Dimensions.get('window');
-
-// ============================================================================
-// Types
-// ============================================================================
 
 interface RouteParams {
     orderId: string;
     customerName?: string;
     address?: string;
+    latitude?: number;
+    longitude?: number;
 }
-
-// ============================================================================
-// Component
-// ============================================================================
 
 const VerifyScreen = () => {
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
     const route = useRoute<any>();
     const params: RouteParams = route.params || { orderId: '' };
-
-    // Get Order Details for Navigation
-    const order = mockOrders.find(o => o.id === params.orderId) || mockOrders[0];
 
     // GPS Hook
     const {
@@ -85,18 +66,14 @@ const VerifyScreen = () => {
     // State
     const [isVerified, setIsVerified] = useState(false);
     const [distance, setDistance] = useState<number | null>(null);
-    const [threshold, setThreshold] = useState<number>(25); // Default 25m
-    const [isLoading, setIsLoading] = useState(false);
     const [isCompleting, setIsCompleting] = useState(false);
     const [lastError, setLastError] = useState<string>('');
+    const [canShowRangeWarning, setCanShowRangeWarning] = useState(false);
 
     // Animations
     const pulseAnim = useRef(new Animated.Value(1)).current;
     const progressAnim = useRef(new Animated.Value(0)).current;
 
-    /**
-     * Pulse Animation for the main icon
-     */
     useEffect(() => {
         Animated.loop(
             Animated.sequence([
@@ -116,20 +93,22 @@ const VerifyScreen = () => {
         ).start();
     }, []);
 
-    /**
-     * Auto-Refresh Logic (Every 5s)
-     */
     useFocusEffect(
         useCallback(() => {
             startWatching();
+            setCanShowRangeWarning(false);
+
+            // Allow some time before showing range warning
+            const timer = setTimeout(() => {
+                setCanShowRangeWarning(true);
+            }, 5000);
 
             let interval: ReturnType<typeof setInterval>;
 
             const checkBackendVerification = async () => {
                 if (isCompleting || !location) return;
 
-                // Only verify if accuracy is good
-                if (location.accuracy <= 50) {
+                if (location.accuracy <= 100) { // Accept up to 100m accuracy for check
                     try {
                         const response = await verifyLocation({
                             deliveryId: params.orderId,
@@ -139,9 +118,11 @@ const VerifyScreen = () => {
                         });
 
                         setDistance(response.distance);
-                        setThreshold(response.threshold);
                         setIsVerified(response.verified);
-                        setLastError('');
+
+                        if (response.verified) {
+                            setLastError('');
+                        }
 
                         // Animate Progress Bar
                         const maxDist = 200;
@@ -154,27 +135,25 @@ const VerifyScreen = () => {
                             useNativeDriver: false,
                         }).start();
 
-                    } catch (err) {
+                    } catch (err: any) {
                         console.log('Verify Error:', err);
+                        // Don't show every network glitch
                     }
                 } else if (locationError) {
                     setLastError(getErrorTitle(locationError.type));
                 }
             };
 
-            // Interval to ping backend
-            interval = setInterval(checkBackendVerification, 5000);
+            interval = setInterval(checkBackendVerification, 5000); // Check every 5s
 
             return () => {
                 stopWatching();
                 clearInterval(interval);
+                clearTimeout(timer);
             };
         }, [startWatching, stopWatching, location, isCompleting, locationError, params.orderId])
     );
 
-    /**
-     * Handle "Continue Verification" press
-     */
     const handleContinue = async () => {
         if (!isVerified || !location) return;
 
@@ -193,7 +172,7 @@ const VerifyScreen = () => {
                     gpsVerified: true
                 });
             }
-        } catch (error) {
+        } catch (error: any) {
             setIsCompleting(false);
             if (error instanceof ApiError) {
                 setLastError(error.message);
@@ -204,28 +183,24 @@ const VerifyScreen = () => {
     };
 
     const handleNavigate = () => {
-        // Safe access to lat/lng from mock order or fallback
-        const lat = (order as any).latitude || 0;
-        const lng = (order as any).longitude || 0;
+        const lat = params.latitude || 0;
+        const lng = params.longitude || 0;
 
         let url = '';
         if (lat !== 0 && lng !== 0) {
             url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
         } else {
-            const label = encodeURIComponent(order.address || params.address || '');
+            const label = encodeURIComponent(params.address || '');
             url = `https://www.google.com/maps/dir/?api=1&destination=${label}`;
         }
         Linking.openURL(url);
     };
 
-    /**
-     * Replaced Map Placeholder with Navigate Button
-     */
     const renderNavigateSection = () => (
         <View style={styles.navigateSection}>
             <TouchableOpacity onPress={handleNavigate} style={{ width: '100%' }}>
                 <LinearGradient
-                    colors={['#FF791A', '#EA580C']} // Primary Orange Gradient
+                    colors={['#FF791A', '#EA580C']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.navigateButton}
@@ -235,7 +210,6 @@ const VerifyScreen = () => {
                 </LinearGradient>
             </TouchableOpacity>
 
-            {/* Error Overlay if needed */}
             {(lastError || (locationStatus === 'error')) && (
                 <View style={[styles.warningBadge, { backgroundColor: 'rgba(239, 68, 68, 0.9)' }]}>
                     <Icon name="alert-circle" size={16} color="#fff" />
@@ -250,10 +224,8 @@ const VerifyScreen = () => {
                 </View>
             )}
 
-            {/* Out of Range Overlay */}
-            {!isVerified && !lastError && distance !== null && (
+            {!isVerified && !lastError && distance !== null && canShowRangeWarning && (
                 <View style={[styles.warningBadge, { top: -80 }]}>
-                    {/* Positioned above button if needed, or just let it stack */}
                     <Icon name="radius-outline" size={20} color="#EF4444" />
                     <View>
                         <Text style={styles.warningTitle}>Out of Range</Text>
@@ -324,7 +296,6 @@ const VerifyScreen = () => {
                         <Text style={[styles.rangeText, { color: '#22C55E' }]}>DESTINATION</Text>
                     </View>
 
-                    {/* Navigate Button Section (Replaces Map) */}
                     {renderNavigateSection()}
 
                 </View>
@@ -361,7 +332,6 @@ const VerifyScreen = () => {
                 </TouchableOpacity>
             </View>
 
-            {/* Permission Error Overlay handler */}
             {locationError?.type === 'PERMISSION' && (
                 <TouchableOpacity style={styles.permOverlay} onPress={openSettings}>
                     <Text style={styles.permText}>Tap to Enable Location</Text>
@@ -376,7 +346,7 @@ export default VerifyScreen;
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#0d0805', // Very dark background
+        backgroundColor: '#0d0805',
     },
     header: {
         flexDirection: 'row',
@@ -415,7 +385,7 @@ const styles = StyleSheet.create({
         width: 100,
         height: 100,
         borderRadius: 50,
-        backgroundColor: 'rgba(255, 121, 26, 0.2)', // Faint orange glow
+        backgroundColor: 'rgba(255, 121, 26, 0.2)',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -423,7 +393,7 @@ const styles = StyleSheet.create({
         width: 80,
         height: 80,
         borderRadius: 40,
-        backgroundColor: '#FF791A', // Bright primary orange
+        backgroundColor: '#FF791A',
         justifyContent: 'center',
         alignItems: 'center',
         shadowColor: "#FF791A",
@@ -434,7 +404,7 @@ const styles = StyleSheet.create({
     },
     card: {
         width: width - 40,
-        backgroundColor: '#1A1D21', // Dark card
+        backgroundColor: '#1A1D21',
         borderRadius: 30,
         padding: 24,
         borderWidth: 1,
@@ -487,7 +457,7 @@ const styles = StyleSheet.create({
     },
     rangeText: {
         fontSize: 10,
-        color: '#EF4444', // Red for out of range
+        color: '#EF4444',
         fontWeight: 'bold',
         letterSpacing: 0.5,
     },
@@ -498,7 +468,6 @@ const styles = StyleSheet.create({
         width: '100%',
         position: 'relative',
     },
-    // New Styles for Button
     navigateButton: {
         height: 56,
         borderRadius: 16,
@@ -521,7 +490,7 @@ const styles = StyleSheet.create({
     },
     warningBadge: {
         marginTop: 16,
-        backgroundColor: 'rgba(30, 10, 10, 0.9)', // Dark red/brown
+        backgroundColor: 'rgba(30, 10, 10, 0.9)',
         borderRadius: 12,
         padding: 12,
         flexDirection: 'row',
@@ -555,7 +524,7 @@ const styles = StyleSheet.create({
         gap: 10,
     },
     btnDisabled: {
-        backgroundColor: '#2A1E17', // Darker brown for disabled
+        backgroundColor: '#2A1E17',
         opacity: 0.8,
     },
     btnText: {
@@ -568,9 +537,9 @@ const styles = StyleSheet.create({
         top: 0,
         left: 0,
         right: 0,
-        height: 100, // Just touchable area at top
+        height: 100,
     },
     permText: {
-        display: 'none', // just a hit slop helper
+        display: 'none',
     }
 });

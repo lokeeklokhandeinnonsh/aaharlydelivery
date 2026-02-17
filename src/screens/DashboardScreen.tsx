@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
     View,
     Text,
@@ -7,6 +7,7 @@ import {
     TouchableOpacity,
     StatusBar,
     Image,
+    ActivityIndicator,
 } from 'react-native';
 
 import LinearGradient from 'react-native-linear-gradient';
@@ -16,13 +17,107 @@ import { Platform } from 'react-native';
 
 import { colors } from '../theme/colors';
 import { fonts } from '../theme/fonts';
-import { mockOrders, Order } from '../data/mockOrders';
 
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+
+import { getNearbyDeliveries, NearbyDeliveryItem, formatDistance } from '../services/api/deliveryApi';
+import { useLocation } from '../hooks/useLocation';
+import { useAuthStore } from '../store/authStore';
 
 const DashboardScreen = () => {
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
+    const { user } = useAuthStore();
+
+    // State
+    const [deliveries, setDeliveries] = useState<NearbyDeliveryItem[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+
+    // Location Hook
+    const locationHook = useLocation({
+        targetAccuracy: 100, // Slightly looser for dashboard listing
+        timeout: 10000,
+    });
+
+    const isMounted = useRef(true);
+
+    // Fetch Logic
+    const fetchData = useCallback(async (silent = false) => {
+        if (!silent) setIsLoading(true);
+        setError(null);
+
+        try {
+            // 1. Get Location
+            let loc = locationHook.location;
+            if (!loc) {
+                loc = await locationHook.fetchLocation();
+            }
+
+            if (!loc) {
+                if (locationHook.error) {
+                    throw new Error(locationHook.error.message || 'Location access required');
+                }
+                throw new Error('Unable to get current location');
+            }
+
+            // 2. Call API
+            const response = await getNearbyDeliveries({
+                latitude: loc.latitude,
+                longitude: loc.longitude,
+                maxDistance: 10000, // 10km radius
+                limit: 20
+            });
+
+            if (isMounted.current) {
+                setDeliveries(response.deliveries);
+                setError(null);
+            }
+        } catch (err: any) {
+            console.error('Fetch error:', err);
+            if (isMounted.current) {
+                setError(err.message || 'Failed to load deliveries');
+            }
+        } finally {
+            if (isMounted.current) {
+                setIsLoading(false);
+                setIsRefreshing(false);
+            }
+        }
+    }, [locationHook]);
+
+    // Cleanup on unmount
+    React.useEffect(() => {
+        return () => { isMounted.current = false; };
+    }, []);
+
+    // Lifecycle: Focus & Interval
+    useFocusEffect(
+        useCallback(() => {
+            isMounted.current = true;
+            fetchData();
+
+            // Auto refresh every 20s
+            const interval = setInterval(() => {
+                // Don't refresh if navigating or engaging
+                // For now, simplistically refresh silently
+                fetchData(true);
+            }, 20000);
+
+            return () => {
+                // isMounted.current = false; // Don't set false here, as blur doesn't mean unmount
+                clearInterval(interval);
+            };
+        }, [fetchData])
+    );
+
+    /* ---------------- Stats Calculation ---------------- */
+    const stats = {
+        total: deliveries.length,
+        pending: deliveries.filter(d => d.status === 'PENDING' || d.status === 'READY_TO_DISPATCH').length,
+        done: deliveries.filter(d => d.status === 'DELIVERED').length
+    };
 
     /* ---------------- Stats Card ---------------- */
     const renderStat = (
@@ -37,7 +132,7 @@ const DashboardScreen = () => {
     );
 
     /* ---------------- Order Card ---------------- */
-    const renderOrder = ({ item }: { item: Order }) => (
+    const renderOrder = ({ item }: { item: NearbyDeliveryItem }) => (
         <View style={styles.orderCard}>
 
             {/* Glass Effect */}
@@ -46,7 +141,6 @@ const DashboardScreen = () => {
             ) : (
                 <View style={styles.androidGlass} />
             )}
-
 
             <View style={styles.cardContent}>
 
@@ -59,12 +153,18 @@ const DashboardScreen = () => {
                         </View>
 
                         <View>
-                            <Text style={styles.userName}>{item.name}</Text>
+                            <Text style={styles.userName}>{item.customerName}</Text>
 
                             <View style={styles.statusRow}>
-                                <View style={styles.pulseDot} />
-                                <Text style={styles.pendingText}>
-                                    Pending Delivery
+                                <View style={[
+                                    styles.pulseDot,
+                                    { backgroundColor: item.priority === 'URGENT' ? colors.error : '#f59e0b' }
+                                ]} />
+                                <Text style={[
+                                    styles.pendingText,
+                                    { color: item.priority === 'URGENT' ? colors.error : '#f59e0b' }
+                                ]}>
+                                    {item.status.replace(/_/g, ' ')}
                                 </Text>
                             </View>
                         </View>
@@ -72,7 +172,7 @@ const DashboardScreen = () => {
 
                     <View style={styles.idBadge}>
                         <Text style={styles.idText}>
-                            ID #{item.id.slice(-4)}
+                            #{item.id.slice(-4)}
                         </Text>
                     </View>
 
@@ -84,13 +184,22 @@ const DashboardScreen = () => {
                     <View style={styles.detailRow}>
                         <Icon name="silverware-fork-knife" size={16} color="#999" />
                         <Text style={styles.detailText}>
-                            {item.meal} • <Text style={styles.boldText}>{item.slot}</Text>
+                            {item.mealName || item.mealType}
                         </Text>
                     </View>
 
                     <View style={styles.detailRow}>
                         <Icon name="map-marker" size={16} color="#999" />
-                        <Text style={styles.detailText}>{item.address}</Text>
+                        <Text style={styles.detailText} numberOfLines={1}>
+                            {item.address.street}
+                        </Text>
+                    </View>
+
+                    <View style={styles.detailRow}>
+                        <Icon name="navigation" size={16} color={colors.primary} />
+                        <Text style={[styles.detailText, { color: colors.primary, fontFamily: fonts.bold }]}>
+                            {formatDistance(item.distance)} away
+                        </Text>
                     </View>
 
                 </View>
@@ -102,7 +211,7 @@ const DashboardScreen = () => {
                         style={styles.verifyBtn}
                         onPress={() =>
                             navigation.navigate('OrderDetails', {
-                                orderId: item.id,
+                                delivery: item,
                             })
                         }
                     >
@@ -120,18 +229,16 @@ const DashboardScreen = () => {
         </View>
     );
 
-    /* ---------------- UI ---------------- */
+    /* ---------------- Main UI ---------------- */
     return (
         <View style={styles.container}>
-
             <StatusBar barStyle="light-content" />
 
             {/* Header */}
             <View style={styles.header}>
-
                 <View>
-                    <Text style={styles.title}>Ravet Kitchen</Text>
-                    <Text style={styles.date}>6 FEB 2026</Text>
+                    <Text style={styles.title}>Welcome Back</Text>
+                    <Text style={styles.date}>{user?.name || 'Partner'}</Text>
                 </View>
 
                 {/* Profile */}
@@ -144,31 +251,54 @@ const DashboardScreen = () => {
                         style={styles.profilePic}
                     />
                 </LinearGradient>
-
             </View>
 
             {/* Stats */}
             <View style={styles.statsRow}>
-                {renderStat('TOTAL', '12', '#999')}
-                {renderStat('PENDING', '5', '#f59e0b')}
-                {renderStat('DONE', '7', '#22c55e')}
+                {renderStat('TOTAL', stats.total.toString(), '#999')}
+                {renderStat('PENDING', stats.pending.toString(), '#f59e0b')}
+                {renderStat('COMPLETED', stats.done.toString(), '#22c55e')}
             </View>
 
             {/* Section */}
             <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Live Orders</Text>
+                <Text style={styles.sectionTitle}>Nearby Deliveries</Text>
                 <Icon name="tune" size={22} color="#888" />
             </View>
 
-            {/* Orders */}
-            <FlatList
-                data={mockOrders}
-                renderItem={renderOrder}
-                keyExtractor={i => i.id}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ paddingBottom: 160 }}
-            />
-
+            {/* Content Body */}
+            {isLoading && !isRefreshing ? (
+                <View style={styles.centerBox}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={styles.loadingText}>Finding nearby orders...</Text>
+                </View>
+            ) : error ? (
+                <View style={styles.centerBox}>
+                    <Icon name="alert-circle-outline" size={48} color={colors.error} />
+                    <Text style={styles.errorText}>{error}</Text>
+                    <TouchableOpacity style={styles.retryBtn} onPress={() => fetchData()}>
+                        <Text style={styles.retryText}>Retry</Text>
+                    </TouchableOpacity>
+                </View>
+            ) : deliveries.length === 0 ? (
+                <View style={styles.centerBox}>
+                    <Icon name="moped" size={48} color="#555" />
+                    <Text style={styles.emptyText}>No deliveries assigned nearby.</Text>
+                    <TouchableOpacity style={styles.retryBtn} onPress={() => fetchData()}>
+                        <Text style={styles.retryText}>Refresh</Text>
+                    </TouchableOpacity>
+                </View>
+            ) : (
+                <FlatList
+                    data={deliveries}
+                    renderItem={renderOrder}
+                    keyExtractor={i => i.id}
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={{ paddingBottom: 160 }}
+                    refreshing={isRefreshing}
+                    onRefresh={() => fetchData(true)}
+                />
+            )}
         </View>
     );
 };
@@ -186,7 +316,6 @@ const styles = StyleSheet.create({
     },
 
     /* Header */
-
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -202,10 +331,9 @@ const styles = StyleSheet.create({
     },
 
     date: {
-        fontSize: 13,
-        color: 'rgba(255,255,255,0.5)',
+        fontSize: 16,
+        color: 'rgba(255,255,255,0.7)',
         marginTop: 4,
-        letterSpacing: 1,
         fontFamily: fonts.medium,
     },
 
@@ -225,7 +353,6 @@ const styles = StyleSheet.create({
     },
 
     /* Stats */
-
     statsRow: {
         flexDirection: 'row',
         gap: 12,
@@ -254,7 +381,6 @@ const styles = StyleSheet.create({
     },
 
     /* Section */
-
     sectionHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -278,9 +404,7 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.04)',
     },
 
-
     /* Orders */
-
     orderCard: {
         borderRadius: 28,
         marginBottom: 16,
@@ -330,12 +454,10 @@ const styles = StyleSheet.create({
         width: 6,
         height: 6,
         borderRadius: 3,
-        backgroundColor: '#f59e0b',
     },
 
     pendingText: {
         fontSize: 12,
-        color: '#f59e0b',
         fontWeight: '600',
     },
 
@@ -375,7 +497,6 @@ const styles = StyleSheet.create({
     },
 
     /* Actions */
-
     actions: {
         flexDirection: 'row',
         gap: 12,
@@ -410,6 +531,48 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.05)',
         justifyContent: 'center',
         alignItems: 'center',
+    },
+
+    /* States */
+    centerBox: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 60,
+        paddingBottom: 40,
+    },
+
+    loadingText: {
+        color: '#888',
+        marginTop: 16,
+        fontFamily: fonts.medium,
+    },
+
+    errorText: {
+        color: colors.error,
+        marginTop: 12,
+        fontFamily: fonts.medium,
+        textAlign: 'center',
+        maxWidth: 250,
+    },
+
+    emptyText: {
+        color: '#666',
+        marginTop: 12,
+        fontFamily: fonts.medium,
+    },
+
+    retryBtn: {
+        marginTop: 20,
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        borderRadius: 12,
+    },
+
+    retryText: {
+        color: '#fff',
+        fontFamily: fonts.semiBold,
     },
 
 });
