@@ -36,10 +36,16 @@ const DashboardScreen = () => {
     const [isRefreshing, setIsRefreshing] = useState(false);
 
     // Location Hook
-    const locationHook = useLocation({
+    const locationOptions = React.useMemo(() => ({
         targetAccuracy: 100, // Slightly looser for dashboard listing
         timeout: 10000,
-    });
+    }), []);
+
+    const {
+        location: userLocation,
+        fetchLocation,
+        error: locationError,
+    } = useLocation(locationOptions);
 
     const isMounted = useRef(true);
 
@@ -50,14 +56,14 @@ const DashboardScreen = () => {
 
         try {
             // 1. Get Location
-            let loc = locationHook.location;
+            let loc = userLocation;
             if (!loc) {
-                loc = await locationHook.fetchLocation();
+                loc = await fetchLocation();
             }
 
             if (!loc) {
-                if (locationHook.error) {
-                    throw new Error(locationHook.error.message || 'Location access required');
+                if (locationError) {
+                    throw new Error(locationError.message || 'Location access required');
                 }
                 throw new Error('Unable to get current location');
             }
@@ -85,31 +91,33 @@ const DashboardScreen = () => {
                 setIsRefreshing(false);
             }
         }
-    }, [locationHook]);
+    }, [userLocation, fetchLocation, locationError]);
+
+    // Stable Fetch Reference to prevent loops
+    const fetchDataRef = useRef(fetchData);
+    fetchDataRef.current = fetchData;
 
     // Cleanup on unmount
     React.useEffect(() => {
+        isMounted.current = true;
         return () => { isMounted.current = false; };
     }, []);
 
     // Lifecycle: Focus & Interval
     useFocusEffect(
         useCallback(() => {
-            isMounted.current = true;
-            fetchData();
+            // Initial fetch
+            fetchDataRef.current();
 
             // Auto refresh every 20s
             const interval = setInterval(() => {
-                // Don't refresh if navigating or engaging
-                // For now, simplistically refresh silently
-                fetchData(true);
+                fetchDataRef.current(true);
             }, 20000);
 
             return () => {
-                // isMounted.current = false; // Don't set false here, as blur doesn't mean unmount
                 clearInterval(interval);
             };
-        }, [fetchData])
+        }, []) // Stable callback
     );
 
     /* ---------------- Stats Calculation ---------------- */

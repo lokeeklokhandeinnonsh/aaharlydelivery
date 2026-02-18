@@ -10,7 +10,7 @@
  * - NetInfo integration for connectivity checks
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Platform, Linking, Alert, PermissionsAndroid, AppState, AppStateStatus } from 'react-native';
 import Geolocation, { GeoPosition, GeoError } from 'react-native-geolocation-service';
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
@@ -472,7 +472,7 @@ export function useLocation(options: UseLocationOptions = {}): UseLocationReturn
         retryCount.current = 0;
     }, []);
 
-    return {
+    return useMemo(() => ({
         location,
         status,
         error,
@@ -485,7 +485,19 @@ export function useLocation(options: UseLocationOptions = {}): UseLocationReturn
         startWatching,
         stopWatching,
         isWatching
-    };
+    }), [
+        location,
+        status,
+        error,
+        fetchLocation,
+        requestPermission,
+        openSettings,
+        clearLocation,
+        distance,
+        startWatching,
+        stopWatching,
+        isWatching
+    ]);
 }
 
 // ============================================================================
