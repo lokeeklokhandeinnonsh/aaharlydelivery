@@ -11,6 +11,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { colors } from '../theme/colors';
 import { fonts } from '../theme/fonts';
+import { useAuthStore } from '../store/authStore';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const ProfileScreen = () => {
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
     const insets = useSafeAreaInsets();
+    const { user, logout } = useAuthStore();
 
     const MenuItem = (icon: string, title: string, subtitle: string, onPress?: () => void) => (
         <TouchableOpacity style={styles.menuItem} onPress={onPress}>
@@ -33,6 +35,14 @@ const ProfileScreen = () => {
             <Icon name="chevron-right" size={22} color="rgba(255,255,255,0.3)" />
         </TouchableOpacity>
     );
+
+    const handleLogout = () => {
+        logout();
+        navigation.reset({
+            index: 0,
+            routes: [{ name: 'Login' }],
+        });
+    };
 
     return (
         <View style={styles.container}>
@@ -68,14 +78,14 @@ const ProfileScreen = () => {
                         <View style={styles.onlineDot} />
                     </View>
 
-                    <Text style={styles.name}>Rahul Sharma</Text>
+                    <Text style={styles.name}>{user?.name || 'Delivery Partner'}</Text>
 
                     <View style={styles.companyRow}>
                         <Icon name="storefront" size={14} color={colors.primary} />
                         <Text style={styles.company}> Ravet Kitchen</Text>
                     </View>
 
-                    <Text style={styles.partnerId}>PARTNER ID: #7721</Text>
+                    <Text style={styles.partnerId}>PARTNER ID: #{user?.id?.substring(0, 6).toUpperCase() || '7721'}</Text>
                 </View>
 
                 {/* Stats */}
@@ -114,7 +124,7 @@ const ProfileScreen = () => {
                 <View style={[styles.footer, { paddingBottom: 40 + insets.bottom }]}>
                     <TouchableOpacity
                         style={styles.logoutBtn}
-                        onPress={() => navigation.replace('Login')}
+                        onPress={handleLogout}
                     >
                         <View style={styles.logoutIcon}>
                             <Icon name="logout" size={20} color="#f87171" />

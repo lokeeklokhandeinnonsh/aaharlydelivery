@@ -2,8 +2,7 @@
  * OrderDetailsScreen
  * 
  * Displays delivery details and allows navigation to verification.
- * Updated to show live GPS distance and validation status.
- * stabilized: Added guard for location fetching.
+ * Updated to use real data passed from Dashboard.
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
@@ -14,31 +13,56 @@ import {
     ScrollView,
     TouchableOpacity,
     Linking,
-    Image,
     ActivityIndicator,
-    Platform
 } from 'react-native';
 
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../theme/colors';
 import { fonts } from '../theme/fonts';
-import { mockOrders } from '../data/mockOrders';
-// Removed MapView, MapViewDirections imports
 
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 // GPS & API
 import { useLocation, getErrorTitle } from '../hooks/useLocation';
-import { verifyLocation, formatDistance } from '../services/api/deliveryApi';
+import { formatDistance, NearbyDeliveryItem } from '../services/api/deliveryApi';
 
 const OrderDetailsScreen = () => {
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
     const route = useRoute<any>();
-    const { orderId } = route.params || { orderId: 'ORD001' }; // Fallback for dev
 
-    const order = mockOrders.find(o => o.id === orderId) || mockOrders[0];
+    // Receive full delivery object from Dashboard
+    const delivery: NearbyDeliveryItem = route.params?.delivery;
+
+    // Fallback if accessed incorrectly (should not happen in prod flow)
+    if (!delivery) {
+        return (
+            <View style={[styles.container, styles.center]}>
+                <Text style={{ color: '#fff' }}>No delivery data found.</Text>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                    <Text style={{ color: '#fff' }}>Go Back</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
+
+    const {
+        id: orderId,
+        customerName,
+        customerPhone,
+        address,
+        lat: deliveryLat, // Check if these exist in NearbyDeliveryItem or address object
+        lng: deliveryLng,
+        mealName,
+        mealType,
+        mealDate,
+        status
+    } = delivery as any;
+    // Note: NearbyDeliveryItem has address: DeliveryAddress { street, lat, lng }
+
+    const targetLat = delivery.address.lat || 0;
+    const targetLng = delivery.address.lng || 0;
 
     // GPS Hooks
     const {
@@ -52,18 +76,19 @@ const OrderDetailsScreen = () => {
     } = useLocation({
         autoFetch: false,
         timeout: 10000,
-        targetLat: (order as any).latitude || 0,
-        targetLng: (order as any).longitude || 0
+        targetLat: targetLat,
+        targetLng: targetLng
     });
 
     // State
     const [distance, setDistance] = useState<number | null>(null);
     const [isVerified, setIsVerified] = useState(false);
-    const [verificationLoading, setVerificationLoading] = useState(false);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
     const handleCall = () => {
-        Linking.openURL(`tel:${order.phone}`);
+        if (customerPhone) {
+            Linking.openURL(`tel:${customerPhone}`);
+        }
     };
 
     /**
@@ -82,53 +107,35 @@ const OrderDetailsScreen = () => {
     useEffect(() => {
         if (liveDistance !== null) {
             setDistance(liveDistance);
-            setIsVerified(liveDistance <= 25);
+            setIsVerified(liveDistance <= 50); // 50m verification threshold
             setLastUpdated(new Date());
         }
     }, [liveDistance]);
 
     const handleNavigate = () => {
-        // Use coordinates if available, otherwise fallback to address query (though requirements say use lat/lng)
-        // Since mockOrders might not have lat/lng yet, we'll try to use them if they exist on the order object,
-        // otherwise we might need a fallback or just use the address.
-        // For strict compliance with "3) Keep External Google Maps Navigation":
-        // const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-
-        // Let's assume order has lat/lng or use 0,0 if missing (or update mockOrders).
-        // Since we are removing maps, we rely on external maps.
-
-        // If order object doesn't have lat/lng, we can use address as fallback for now 
-        // OR standard google maps query. 
-        // But user requirement 3 says: 
-        // const openMaps = (lat: number, lng: number) => { ... }
-
-        // I'll check mockOrders content in the previous step, but assuming I need to write safe code:
-        const lat = (order as any).latitude || 0;
-        const lng = (order as any).longitude || 0;
-
         let url = '';
-        if (lat !== 0 && lng !== 0) {
-            url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+        if (targetLat !== 0 && targetLng !== 0) {
+            url = `https://www.google.com/maps/dir/?api=1&destination=${targetLat},${targetLng}`;
         } else {
-            // Fallback to address query if coordinates missing
-            const label = encodeURIComponent(order.address);
+            const label = encodeURIComponent(delivery.address.street || '');
             url = `https://www.google.com/maps/dir/?api=1&destination=${label}`;
         }
-
         Linking.openURL(url);
     };
 
     const handleVerifyPress = () => {
         navigation.navigate('Verify', {
-            orderId: order.id,
-            customerName: order.name,
-            address: order.address
+            orderId: delivery.id,
+            customerName: delivery.customerName,
+            address: delivery.address.street,
+            latitude: targetLat,
+            longitude: targetLng
         });
     };
 
     // Helper to render status bar content
     const renderStatus = () => {
-        if (isGpsLoading || verificationLoading) {
+        if (isGpsLoading) {
             return (
                 <View style={styles.statusRow}>
                     <ActivityIndicator size="small" color={colors.primary} />
@@ -194,22 +201,23 @@ const OrderDetailsScreen = () => {
                             <Icon name="account" size={40} color={colors.white} />
                         </View>
                         <View>
-                            <Text style={styles.customerName}>{order.name}</Text>
+                            <Text style={styles.customerName}>{delivery.customerName}</Text>
                             <View style={styles.badgeRow}>
                                 <Icon name="star-circle" size={14} color={colors.primary} />
-                                <Text style={styles.badgeText}> Premium Customer</Text>
+                                <Text style={styles.badgeText}> {delivery.priority === 'URGENT' ? 'Urgent Order' : 'Standard Delivery'}</Text>
                             </View>
                         </View>
                     </View>
-                    <TouchableOpacity onPress={handleCall} style={styles.callButtonLarge}>
-                        <Icon name="phone" size={24} color={colors.white} />
-                    </TouchableOpacity>
+                    {customerPhone && (
+                        <TouchableOpacity onPress={handleCall} style={styles.callButtonLarge}>
+                            <Icon name="phone" size={24} color={colors.white} />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 {/* Delivery Address Section */}
                 <View style={styles.sectionHeaderRow}>
                     <Text style={styles.sectionLabel}>DELIVERY ADDRESS</Text>
-                    {/* Removed mini Navigate text button, replaced with main button below */}
                 </View>
 
                 <View style={styles.addressCard}>
@@ -219,7 +227,7 @@ const OrderDetailsScreen = () => {
                         </View>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.addressTitle}>Delivery Location</Text>
-                            <Text style={styles.addressSubtitle}>{order.address}</Text>
+                            <Text style={styles.addressSubtitle}>{delivery.address.street}</Text>
                         </View>
                     </View>
 
@@ -227,14 +235,14 @@ const OrderDetailsScreen = () => {
                     <View style={styles.distanceContainer}>
                         {renderStatus()}
 
-                        {lastUpdated && !isGpsLoading && !verificationLoading && (
+                        {lastUpdated && !isGpsLoading && (
                             <Text style={styles.lastUpdatedText}>
                                 Updated: {lastUpdated.toLocaleTimeString()}
                             </Text>
                         )}
                     </View>
 
-                    {/* NEW NAVIGATE BUTTON - Replaces MapContainer */}
+                    {/* Navigation Button */}
                     <TouchableOpacity onPress={handleNavigate}>
                         <LinearGradient
                             colors={['#FF791A', '#EA580C']} // Primary Orange Gradient
@@ -253,11 +261,11 @@ const OrderDetailsScreen = () => {
                 <View style={styles.mealCard}>
                     <View style={styles.planHeader}>
                         <View>
-                            <Text style={styles.planLabel}>PLAN</Text>
-                            <Text style={styles.planName}>7-Day Weight Loss</Text>
+                            <Text style={styles.planLabel}>MEAL</Text>
+                            <Text style={styles.planName}>{delivery.mealName || delivery.mealType}</Text>
                         </View>
                         <View style={styles.activeBadge}>
-                            <Text style={styles.activeText}>ACTIVE</Text>
+                            <Text style={styles.activeText}>{delivery.status.replace(/_/g, ' ')}</Text>
                         </View>
                     </View>
 
@@ -268,8 +276,10 @@ const OrderDetailsScreen = () => {
                             <Icon name="food-variant" size={24} color={colors.warning} />
                         </View>
                         <View>
-                            <Text style={styles.mealName}>{order.meal}</Text>
-                            <Text style={styles.slotInfo}>• {order.slot} Slot • 12:00 PM - 2:00 PM</Text>
+                            <Text style={styles.mealName}>{delivery.planName || 'Single Order'}</Text>
+                            <Text style={styles.slotInfo}>
+                                {new Date(delivery.mealDate).toLocaleDateString()}
+                            </Text>
                         </View>
                     </View>
                 </View>
@@ -283,7 +293,7 @@ const OrderDetailsScreen = () => {
                         styles.verifyButton,
                         !isVerified && distance !== null && { backgroundColor: '#333', opacity: 0.8 }
                     ]}
-                    onPress={handleVerifyPress}
+                    onPress={isVerified ? handleVerifyPress : undefined}
                 >
                     <Icon
                         name={isVerified ? "shield-check" : "shield-alert"}
@@ -309,6 +319,10 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: colors.background,
+    },
+    center: {
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     header: {
         flexDirection: 'row',
@@ -474,6 +488,7 @@ const styles = StyleSheet.create({
         color: colors.white,
         fontSize: 18,
         fontWeight: 'bold',
+        width: 200,
     },
     activeBadge: {
         backgroundColor: 'rgba(234, 112, 11, 0.1)',
