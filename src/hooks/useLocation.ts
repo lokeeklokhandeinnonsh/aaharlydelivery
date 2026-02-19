@@ -90,7 +90,9 @@ export interface UseLocationReturn {
 // Constants
 // ============================================================================
 
-const DEFAULT_TARGET_ACCURACY = 50; // meters (Increased from 30 for stability)
+import { DELIVERY_RADIUS_METERS } from '../constants/delivery';
+
+const DEFAULT_TARGET_ACCURACY = DELIVERY_RADIUS_METERS; // meters (Increased from 30 for stability)
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_TIMEOUT = 15000; // 15 seconds
 const RETRY_DELAYS = [0, 5000, 10000]; // Immediate, 5s, 10s

@@ -27,6 +27,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 // GPS & API
 import { useLocation, getErrorTitle } from '../hooks/useLocation';
 import { formatDistance, NearbyDeliveryItem } from '../services/api/deliveryApi';
+import { DELIVERY_RADIUS_METERS } from '../constants/delivery';
+import ProximityIndicator from '../components/ProximityIndicator';
 
 const OrderDetailsScreen = () => {
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
@@ -103,11 +105,13 @@ const OrderDetailsScreen = () => {
         }, [startWatching, stopWatching])
     );
 
+
+
     // Live Distance Updates
     useEffect(() => {
         if (liveDistance !== null) {
             setDistance(liveDistance);
-            setIsVerified(liveDistance <= 50); // 50m verification threshold
+            setIsVerified(liveDistance <= DELIVERY_RADIUS_METERS);
             setLastUpdated(new Date());
         }
     }, [liveDistance]);
@@ -133,50 +137,51 @@ const OrderDetailsScreen = () => {
         });
     };
 
-    // Helper to render status bar content
-    const renderStatus = () => {
-        if (isGpsLoading) {
-            return (
-                <View style={styles.statusRow}>
-                    <ActivityIndicator size="small" color={colors.primary} />
-                    <Text style={styles.statusText}>Checking proximity...</Text>
-                </View>
-            );
-        }
+    // Helper to render proximity UI
+    const renderProximityContent = () => {
+        // Handle GPS initialization (null distance)
+        const displayDistance = distance ?? 999;
+        const isNear = displayDistance <= DELIVERY_RADIUS_METERS;
+        const isVeryClose = displayDistance <= 15;
+
+        let statusMessage = "Moving to location...";
+        let statusColor = colors.textSecondary;
 
         if (locationError) {
-            return (
-                <View style={styles.statusRow}>
-                    <Icon name="alert-circle" size={16} color={colors.error} />
-                    <Text style={[styles.statusText, { color: colors.error }]}>
-                        {getErrorTitle(locationError.type)}
-                    </Text>
-                </View>
-            );
-        }
-
-        if (distance !== null) {
-            return (
-                <View style={styles.statusRow}>
-                    <Icon
-                        name={isVerified ? "check-circle" : "map-marker-distance"}
-                        size={16}
-                        color={isVerified ? "#22C55E" : "#F59E0B"}
-                    />
-                    <Text style={[
-                        styles.statusText,
-                        isVerified ? { color: "#22C55E" } : { color: "#F59E0B" }
-                    ]}>
-                        {isVerified ? "You are at the location" : `${formatDistance(distance)} away`}
-                    </Text>
-                </View>
-            );
+            statusMessage = getErrorTitle(locationError.type);
+            statusColor = colors.error;
+        } else if (distance === null) {
+            statusMessage = "Locating...";
+        } else if (isVeryClose) {
+            statusMessage = "You are at the location";
+            statusColor = "#22C55E";
+        } else if (isNear) {
+            statusMessage = "You can now verify delivery";
+            statusColor = colors.primary;
+        } else {
+            statusMessage = "Move closer to verify delivery";
         }
 
         return (
-            <View style={styles.statusRow}>
-                <Icon name="map-marker-off" size={16} color={colors.textSecondary} />
-                <Text style={styles.statusText}>Distance unavailable</Text>
+            <View style={styles.proximityContent}>
+                <ProximityIndicator
+                    distance={distance}
+                    radius={DELIVERY_RADIUS_METERS}
+                />
+
+                <Text style={styles.distanceText}>
+                    {distance !== null ? `${Math.round(distance)}m away` : '--'}
+                </Text>
+
+                <Text style={[styles.hintText, { color: statusColor }]}>
+                    {statusMessage}
+                </Text>
+
+                {lastUpdated && !isGpsLoading && (
+                    <Text style={styles.lastUpdatedText}>
+                        Updated: {lastUpdated.toLocaleTimeString()}
+                    </Text>
+                )}
             </View>
         );
     };
@@ -233,13 +238,7 @@ const OrderDetailsScreen = () => {
 
                     {/* Live Distance Indicator */}
                     <View style={styles.distanceContainer}>
-                        {renderStatus()}
-
-                        {lastUpdated && !isGpsLoading && (
-                            <Text style={styles.lastUpdatedText}>
-                                Updated: {lastUpdated.toLocaleTimeString()}
-                            </Text>
-                        )}
+                        {renderProximityContent()}
                     </View>
 
                     {/* Navigation Button */}
@@ -444,27 +443,37 @@ const styles = StyleSheet.create({
         fontFamily: fonts.regular,
     },
     distanceContainer: {
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        borderRadius: 12,
-        padding: 12,
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        borderRadius: 20,
+        padding: 20,
         marginBottom: 16,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 200,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.05)',
     },
-    statusRow: {
-        flexDirection: 'row',
+    proximityContent: {
         alignItems: 'center',
+        justifyContent: 'center',
     },
-    statusText: {
-        marginLeft: 8,
-        fontSize: 13,
-        fontFamily: fonts.medium,
+    distanceText: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#fff',
+        marginTop: 10,
+        marginBottom: 4,
+    },
+    hintText: {
+        fontSize: 14,
         color: colors.textSecondary,
+        textAlign: 'center',
+        marginBottom: 8,
     },
     lastUpdatedText: {
         fontSize: 10,
-        color: 'rgba(255,255,255,0.3)',
+        color: 'rgba(255,255,255,0.2)',
+        marginTop: 8,
     },
     mealCard: {
         backgroundColor: colors.card,

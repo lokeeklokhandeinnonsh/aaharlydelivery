@@ -2,7 +2,7 @@
  * VerifyScreen - Location Verification
  * 
  * Verifies if the rider is at the correct location.
- * Uses real API verification and GPS data.
+ * Implements strict 50m validation and Zomato-style proximity animation.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -17,6 +17,7 @@ import {
     Animated,
     Easing,
     Linking,
+    Platform,
 } from 'react-native';
 
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -33,8 +34,14 @@ import {
     formatDistance
 } from '../services/api/deliveryApi';
 import { ApiError } from '../services/api/apiClient';
+import { DELIVERY_RADIUS_METERS } from '../constants/delivery';
 
 const { width } = Dimensions.get('window');
+
+// Animation Constants
+const MAX_ANIMATION_DISTANCE = 200; // Meters at which circle is max size
+const MIN_SCALE = 0.4;
+const MAX_SCALE = 1.8;
 
 interface RouteParams {
     orderId: string;
@@ -52,53 +59,97 @@ const VerifyScreen = () => {
     // GPS Hook
     const {
         location,
+        distance: gpsDistance,
         startWatching,
         stopWatching,
         status: locationStatus,
         error: locationError,
         openSettings
     } = useLocation({
-        targetAccuracy: 50,
+        targetAccuracy: DELIVERY_RADIUS_METERS,
         autoFetch: false,
-        timeout: 10000
+        timeout: 10000,
+        targetLat: params.latitude,
+        targetLng: params.longitude
     });
 
     // State
     const [isVerified, setIsVerified] = useState(false);
-    const [distance, setDistance] = useState<number | null>(null);
     const [isCompleting, setIsCompleting] = useState(false);
     const [lastError, setLastError] = useState<string>('');
     const [canShowRangeWarning, setCanShowRangeWarning] = useState(false);
 
-    // Animations
+    // Animation Values
     const pulseAnim = useRef(new Animated.Value(1)).current;
+    const distanceAnim = useRef(new Animated.Value(MAX_ANIMATION_DISTANCE)).current; // Start at max
     const progressAnim = useRef(new Animated.Value(0)).current;
 
+    // Derived State
+    const currentDistance = gpsDistance ?? MAX_ANIMATION_DISTANCE;
+    const isWithinRange = currentDistance <= DELIVERY_RADIUS_METERS;
+    const isVeryClose = currentDistance <= 25;
+    const isAtSpot = currentDistance <= 10;
+
+    // Pulse Animation Loop
     useEffect(() => {
-        Animated.loop(
+        const pulse = Animated.loop(
             Animated.sequence([
                 Animated.timing(pulseAnim, {
-                    toValue: 1.1,
+                    toValue: 1.2,
                     duration: 1000,
                     easing: Easing.inOut(Easing.ease),
-                    useNativeDriver: true,
+                    useNativeDriver: false,
                 }),
                 Animated.timing(pulseAnim, {
                     toValue: 1,
                     duration: 1000,
                     easing: Easing.inOut(Easing.ease),
-                    useNativeDriver: true,
+                    useNativeDriver: false,
                 }),
             ])
-        ).start();
+        );
+        pulse.start();
+        return () => pulse.stop();
     }, []);
 
+    // Distance Animation Update
+    useEffect(() => {
+        // Animate visual circle radius based on distance
+        Animated.timing(distanceAnim, {
+            toValue: Math.min(Math.max(currentDistance, 0), MAX_ANIMATION_DISTANCE),
+            duration: 500,
+            useNativeDriver: false, // Changed to false to support color/shadow interpolation
+        }).start();
+
+        // Animate Progress Bar
+        // 0m => 100%, 50m => 0%
+        const progress = Math.max(0, Math.min(1, (DELIVERY_RADIUS_METERS - currentDistance) / DELIVERY_RADIUS_METERS));
+        // If within range, snap to full or high? No, 50m is 0%. 0m is 100%.
+        // Wait, normally progress bar shows "Completion".
+        // If I am at 50m, I have "arrived" at the zone? Or I need to be at 0m?
+        // User says: 0m -> 100%, 50m -> 0%.
+
+        // Actually, let's make it:
+        // Range 0-50m maps to 100%-0% (inverted)?
+        // "Progress bar should represent approach progress: progress = (DELIVERY_RADIUS_METERS - distance) / DELIVERY_RADIUS_METERS"
+        // At 50m: (50-50)/50 = 0.
+        // At 0m: (50-0)/50 = 1 (100%).
+        // At 100m: (50-100)/50 = -1 -> clamped to 0.
+
+        Animated.timing(progressAnim, {
+            toValue: progress,
+            duration: 500,
+            useNativeDriver: false, // width doesn't support native driver
+        }).start();
+
+    }, [currentDistance]);
+
+    // Backend Verification Loop (Keep for syncing)
     useFocusEffect(
         useCallback(() => {
             startWatching();
             setCanShowRangeWarning(false);
 
-            // Allow some time before showing range warning
             const timer = setTimeout(() => {
                 setCanShowRangeWarning(true);
             }, 5000);
@@ -108,7 +159,8 @@ const VerifyScreen = () => {
             const checkBackendVerification = async () => {
                 if (isCompleting || !location) return;
 
-                if (location.accuracy <= 100) { // Accept up to 100m accuracy for check
+                // Only verify if accurate enough
+                if (location.accuracy <= 100) {
                     try {
                         const response = await verifyLocation({
                             deliveryId: params.orderId,
@@ -117,34 +169,21 @@ const VerifyScreen = () => {
                             accuracy: location.accuracy,
                         });
 
-                        setDistance(response.distance);
+                        // We rely on local `gpsDistance` for UI speed, but sync verification status
                         setIsVerified(response.verified);
 
-                        if (response.verified) {
-                            setLastError('');
-                        }
-
-                        // Animate Progress Bar
-                        const maxDist = 200;
-                        const dist = response.distance;
-                        const progress = Math.max(0, Math.min(1, 1 - (dist / maxDist)));
-
-                        Animated.timing(progressAnim, {
-                            toValue: progress,
-                            duration: 500,
-                            useNativeDriver: false,
-                        }).start();
+                        // If backend says verified, clear error
+                        if (response.verified) setLastError('');
 
                     } catch (err: any) {
                         console.log('Verify Error:', err);
-                        // Don't show every network glitch
                     }
                 } else if (locationError) {
                     setLastError(getErrorTitle(locationError.type));
                 }
             };
 
-            interval = setInterval(checkBackendVerification, 5000); // Check every 5s
+            interval = setInterval(checkBackendVerification, 5000);
 
             return () => {
                 stopWatching();
@@ -155,10 +194,16 @@ const VerifyScreen = () => {
     );
 
     const handleContinue = async () => {
-        if (!isVerified || !location) return;
+        if (!isWithinRange) {
+            setLastError(`Move within ${DELIVERY_RADIUS_METERS}m to verify.`);
+            return;
+        }
 
         setIsCompleting(true);
         try {
+            // Final check
+            if (!location) throw new Error("Location unavailable");
+
             const response = await completeDelivery(params.orderId, {
                 completionLatitude: location.latitude,
                 completionLongitude: location.longitude,
@@ -185,61 +230,61 @@ const VerifyScreen = () => {
     const handleNavigate = () => {
         const lat = params.latitude || 0;
         const lng = params.longitude || 0;
+        const label = encodeURIComponent(params.address || '');
 
         let url = '';
         if (lat !== 0 && lng !== 0) {
-            url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+            url = Platform.select({
+                ios: `maps:0,0?q=${label}@${lat},${lng}`,
+                android: `geo:0,0?q=${lat},${lng}(${label})`
+            }) || '';
         } else {
-            const label = encodeURIComponent(params.address || '');
-            url = `https://www.google.com/maps/dir/?api=1&destination=${label}`;
+            url = Platform.select({
+                ios: `maps:0,0?q=${label}`,
+                android: `geo:0,0?q=${label}`
+            }) || '';
         }
         Linking.openURL(url);
     };
 
-    const renderNavigateSection = () => (
-        <View style={styles.navigateSection}>
-            <TouchableOpacity onPress={handleNavigate} style={{ width: '100%' }}>
-                <LinearGradient
-                    colors={['#FF791A', '#EA580C']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.navigateButton}
-                >
-                    <Icon name="navigation" size={24} color={colors.white} style={{ marginRight: 8 }} />
-                    <Text style={styles.navigateButtonText}>Navigate to Location</Text>
-                </LinearGradient>
-            </TouchableOpacity>
+    // Interpolations
+    const circleScale = distanceAnim.interpolate({
+        inputRange: [0, DELIVERY_RADIUS_METERS, MAX_ANIMATION_DISTANCE],
+        outputRange: [MIN_SCALE, 1, MAX_SCALE],
+        extrapolate: 'clamp'
+    });
 
-            {(lastError || (locationStatus === 'error')) && (
-                <View style={[styles.warningBadge, { backgroundColor: 'rgba(239, 68, 68, 0.9)' }]}>
-                    <Icon name="alert-circle" size={16} color="#fff" />
-                    <View>
-                        <Text style={styles.warningTitle}>
-                            {lastError || "GPS Error"}
-                        </Text>
-                        <Text style={styles.warningSub}>
-                            {locationError?.type === 'PERMISSION' ? "Tap to open settings" : "Check signal"}
-                        </Text>
-                    </View>
-                </View>
-            )}
+    const circleOpacity = distanceAnim.interpolate({
+        inputRange: [0, DELIVERY_RADIUS_METERS, MAX_ANIMATION_DISTANCE],
+        outputRange: [1, 0.8, 0.2],
+        extrapolate: 'clamp'
+    });
 
-            {!isVerified && !lastError && distance !== null && canShowRangeWarning && (
-                <View style={[styles.warningBadge, { top: -80 }]}>
-                    <Icon name="radius-outline" size={20} color="#EF4444" />
-                    <View>
-                        <Text style={styles.warningTitle}>Out of Range</Text>
-                        <Text style={styles.warningSub}>Move closer to verify</Text>
-                    </View>
-                </View>
-            )}
-        </View>
-    );
+    const circleColor = distanceAnim.interpolate({
+        inputRange: [0, 25, DELIVERY_RADIUS_METERS, 100],
+        outputRange: ['#22C55E', '#22C55E', '#FF791A', 'rgba(255,255,255,0.1)'],
+        extrapolate: 'clamp' // Keep green if < 0?
+    });
+
+    const glowIntensity = distanceAnim.interpolate({
+        inputRange: [0, DELIVERY_RADIUS_METERS],
+        outputRange: [1, 0],
+        extrapolate: 'clamp'
+    });
 
     const progressWidth = progressAnim.interpolate({
         inputRange: [0, 1],
         outputRange: ['0%', '100%']
     });
+
+    // Dynamic Helper Text
+    const getHelperText = () => {
+        if (currentDistance > DELIVERY_RADIUS_METERS) return `Move within ${DELIVERY_RADIUS_METERS} meters to verify delivery`;
+        if (currentDistance <= DELIVERY_RADIUS_METERS && currentDistance > 10) return "You are at delivery location";
+        return "Ready to complete delivery";
+    };
+
+    const canProceed = isWithinRange && !isCompleting;
 
     return (
         <View style={styles.container}>
@@ -259,25 +304,48 @@ const VerifyScreen = () => {
 
             <View style={styles.content}>
 
-                {/* Main Icon */}
+                {/* Main Dynamic Proximity Indicator */}
                 <View style={styles.mainIconContainer}>
-                    <Animated.View style={[styles.pulseCircle, { transform: [{ scale: pulseAnim }] }]}>
-                        <View style={styles.iconCore}>
-                            <Icon name="map-marker" size={40} color="#fff" />
+                    {/* Outer scaling circle */}
+                    <Animated.View style={[
+                        styles.proximityCircle,
+                        {
+                            transform: [{ scale: circleScale }],
+                            opacity: circleOpacity,
+                            borderColor: circleColor,
+                            backgroundColor: isWithinRange ? 'rgba(34, 197, 94, 0.1)' : 'rgba(255, 121, 26, 0.05)'
+                        }
+                    ]} />
+
+                    {/* Inner Pulse (Location Pin) */}
+                    <Animated.View style={[
+                        styles.pulseCore,
+                        {
+                            transform: [{ scale: pulseAnim }],
+                            shadowOpacity: glowIntensity,
+                        }
+                    ]}>
+                        <View style={[styles.iconCore, isWithinRange && styles.iconCoreSuccess]}>
+                            <Icon name={isWithinRange ? "check" : "map-marker"} size={32} color="#fff" />
                         </View>
                     </Animated.View>
                 </View>
 
+                {/* Status Text */}
+                <Text style={styles.statusTitle}>
+                    {isWithinRange ? "You're Here!" : "Approaching..."}
+                </Text>
+                <Text style={styles.statusSubtitle}>
+                    {getHelperText()}
+                </Text>
+
                 {/* Card */}
                 <View style={styles.card}>
-                    <Text style={styles.cardTitle}>Location Check</Text>
-                    <Text style={styles.cardSubtitle}>Verify delivery location</Text>
-
                     {/* Proximity Section */}
                     <View style={styles.proximityRow}>
-                        <Text style={styles.proximityLabel}>Proximity</Text>
-                        <Text style={styles.distanceValue}>
-                            {distance !== null ? formatDistance(distance) : '--'} away
+                        <Text style={styles.proximityLabel}>Distance to Drop</Text>
+                        <Text style={[styles.distanceValue, isWithinRange && { color: '#22C55E' }]}>
+                            {formatDistance(currentDistance)}
                         </Text>
                     </View>
 
@@ -287,46 +355,68 @@ const VerifyScreen = () => {
                             style={[
                                 styles.progressBarFill,
                                 { width: progressWidth },
-                                isVerified && { backgroundColor: '#22C55E' }
+                                isWithinRange && { backgroundColor: '#22C55E' }
                             ]}
                         />
                     </View>
                     <View style={styles.rangeLabels}>
-                        <Text style={styles.rangeText}>OUT OF RANGE</Text>
-                        <Text style={[styles.rangeText, { color: '#22C55E' }]}>DESTINATION</Text>
+                        <Text style={styles.rangeText}>{DELIVERY_RADIUS_METERS}m ZONE</Text>
+                        <Text style={[styles.rangeText, { color: '#22C55E' }]}>ARRIVED</Text>
                     </View>
 
-                    {renderNavigateSection()}
+                    {/* Navigation Button */}
+                    <TouchableOpacity onPress={handleNavigate} style={{ marginTop: 10 }}>
+                        <LinearGradient
+                            colors={['#2A2F35', '#1F2429']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={styles.navigateButton}
+                        >
+                            <Icon name="navigation" size={20} color={colors.white} style={{ marginRight: 8 }} />
+                            <Text style={styles.navigateButtonText}>Open Maps</Text>
+                        </LinearGradient>
+                    </TouchableOpacity>
 
                 </View>
             </View>
 
-            {/* Bottom Button */}
+            {/* Error / Warning Overlays */}
+            {(lastError || (locationStatus === 'error')) && (
+                <View style={styles.errorBanner}>
+                    <Icon name="alert-circle" size={20} color="#fff" />
+                    <Text style={styles.errorText}>
+                        {lastError || "GPS Signal Weak"}
+                    </Text>
+                </View>
+            )}
+
+            {/* Footer Button - Only active when in range */}
             <View style={styles.footer}>
                 <TouchableOpacity
                     activeOpacity={0.8}
                     style={[
                         styles.continueBtn,
-                        (!isVerified || isCompleting) && styles.btnDisabled
+                        (!canProceed) && styles.btnDisabled,
+                        isWithinRange && styles.btnSuccess
                     ]}
                     onPress={handleContinue}
-                    disabled={!isVerified || isCompleting}
+                    disabled={!canProceed}
                 >
                     {isCompleting ? (
                         <ActivityIndicator color="#fff" />
                     ) : (
                         <>
+                            <Icon
+                                name={isWithinRange ? "check-circle" : "walk"}
+                                size={24}
+                                color={!canProceed ? 'rgba(255,255,255,0.4)' : '#fff'}
+                            />
                             <Text style={[
                                 styles.btnText,
-                                (!isVerified) && { color: 'rgba(255,255,255,0.4)' }
+                                (!canProceed) && { color: 'rgba(255,255,255,0.4)' }
                             ]}>
-                                Continue Verification
+                                {isWithinRange ? "Complete Delivery" : "Get Closer to Verify"}
                             </Text>
-                            <Icon
-                                name="arrow-right"
-                                size={20}
-                                color={!isVerified ? 'rgba(255,255,255,0.4)' : '#fff'}
-                            />
                         </>
                     )}
                 </TouchableOpacity>
@@ -354,7 +444,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         paddingHorizontal: 20,
         paddingTop: 40,
-        paddingBottom: 20,
+        paddingBottom: 10,
     },
     backBtn: {
         width: 40,
@@ -374,54 +464,64 @@ const styles = StyleSheet.create({
     content: {
         flex: 1,
         alignItems: 'center',
-        paddingTop: 20,
+        paddingTop: 40,
     },
     mainIconContainer: {
-        marginBottom: 30,
+        width: 200,
+        height: 200,
         alignItems: 'center',
         justifyContent: 'center',
+        marginBottom: 20,
     },
-    pulseCircle: {
-        width: 100,
-        height: 100,
-        borderRadius: 50,
-        backgroundColor: 'rgba(255, 121, 26, 0.2)',
+    proximityCircle: {
+        position: 'absolute',
+        width: 200,
+        height: 200,
+        borderRadius: 100,
+        borderWidth: 4,
+        borderColor: '#FF791A',
         justifyContent: 'center',
         alignItems: 'center',
     },
-    iconCore: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        backgroundColor: '#FF791A',
+    pulseCore: {
         justifyContent: 'center',
         alignItems: 'center',
         shadowColor: "#FF791A",
         shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.5,
         shadowRadius: 20,
         elevation: 10,
+    },
+    iconCore: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: '#FF791A',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    iconCoreSuccess: {
+        backgroundColor: '#22C55E',
+        shadowColor: '#22C55E',
+    },
+    statusTitle: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#fff',
+        marginBottom: 8,
+    },
+    statusSubtitle: {
+        fontSize: 14,
+        color: 'rgba(255,255,255,0.6)',
+        marginBottom: 30,
+        textAlign: 'center',
     },
     card: {
         width: width - 40,
         backgroundColor: '#1A1D21',
-        borderRadius: 30,
+        borderRadius: 24,
         padding: 24,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.05)',
-    },
-    cardTitle: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        color: '#fff',
-        textAlign: 'center',
-        marginBottom: 4,
-    },
-    cardSubtitle: {
-        fontSize: 16,
-        color: 'rgba(255,255,255,0.5)',
-        textAlign: 'center',
-        marginBottom: 30,
     },
     proximityRow: {
         flexDirection: 'row',
@@ -435,101 +535,89 @@ const styles = StyleSheet.create({
     },
     distanceValue: {
         color: '#fff',
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: 'bold',
     },
     progressBarBg: {
-        height: 8,
+        height: 6,
         backgroundColor: 'rgba(255,255,255,0.1)',
-        borderRadius: 4,
+        borderRadius: 3,
         overflow: 'hidden',
         marginBottom: 8,
     },
     progressBarFill: {
         height: '100%',
         backgroundColor: '#FF791A',
-        borderRadius: 4,
+        borderRadius: 3,
     },
     rangeLabels: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginBottom: 24,
+        marginBottom: 20,
     },
     rangeText: {
         fontSize: 10,
-        color: '#EF4444',
+        color: 'rgba(255,255,255,0.4)',
         fontWeight: 'bold',
         letterSpacing: 0.5,
     },
-    navigateSection: {
-        marginTop: 10,
-        marginBottom: 10,
-        alignItems: 'center',
-        width: '100%',
-        position: 'relative',
-    },
     navigateButton: {
-        height: 56,
-        borderRadius: 16,
+        height: 48,
+        borderRadius: 12,
         flexDirection: 'row',
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: '#EA580C',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 10,
-        elevation: 6,
-        width: '100%',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
     },
     navigateButtonText: {
         color: colors.white,
-        fontSize: 16,
+        fontSize: 14,
         fontWeight: 'bold',
-        letterSpacing: 0.5,
-        textTransform: 'uppercase',
     },
-    warningBadge: {
-        marginTop: 16,
-        backgroundColor: 'rgba(30, 10, 10, 0.9)',
-        borderRadius: 12,
-        padding: 12,
+    errorBanner: {
+        position: 'absolute',
+        bottom: 100,
+        alignSelf: 'center',
+        backgroundColor: '#EF4444',
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderRadius: 20,
         flexDirection: 'row',
         alignItems: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(239, 68, 68, 0.3)',
-        width: '100%'
+        gap: 8,
     },
-    warningTitle: {
+    errorText: {
         color: '#fff',
         fontWeight: 'bold',
-        fontSize: 14,
-        marginLeft: 10,
-    },
-    warningSub: {
-        color: '#EF4444',
         fontSize: 12,
-        marginLeft: 10,
     },
     footer: {
         padding: 20,
         paddingBottom: 40,
     },
     continueBtn: {
-        backgroundColor: '#4A3426',
+        backgroundColor: '#2A1E17',
         height: 60,
         borderRadius: 30,
         flexDirection: 'row',
         justifyContent: 'center',
         alignItems: 'center',
-        gap: 10,
+        gap: 12,
+    },
+    btnSuccess: {
+        backgroundColor: '#22C55E', // Green when ready
+        shadowColor: '#22C55E',
+        shadowOpacity: 0.4,
+        shadowRadius: 10,
+        elevation: 8,
     },
     btnDisabled: {
-        backgroundColor: '#2A1E17',
-        opacity: 0.8,
+        opacity: 0.7,
     },
     btnText: {
         color: '#fff',
-        fontSize: 17,
+        fontSize: 16,
         fontWeight: 'bold',
     },
     permOverlay: {
