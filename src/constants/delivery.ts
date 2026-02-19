@@ -1,0 +1,1 @@
+export const DELIVERY_RADIUS_METERS = 50;

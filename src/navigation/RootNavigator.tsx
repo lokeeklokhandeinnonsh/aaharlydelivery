@@ -16,6 +16,8 @@ import OrderDetailsScreen from '../screens/OrderDetailsScreen';
 import VerifyScreen from '../screens/VerifyScreen';
 import HelpSupportScreen from '../screens/HelpSupportScreen';
 import DeliverySuccessScreen from '../screens/DeliverySuccessScreen';
+// import SplashScreen from '../screens/SplashScreen';
+import AnimatedIntroScreen from '../screens/AnimatedIntroScreen';
 
 // Removed in Phase 1:
 // import LocationCheckScreen from '../screens/LocationCheckScreen';
@@ -30,7 +32,9 @@ const RootNavigator = () => {
         <NavigationContainer>
             <StatusBar barStyle="light-content" backgroundColor={colors.background} />
 
-            <Stack.Navigator screenOptions={{ headerShown: false }}>
+            <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="AnimatedIntro">
+                <Stack.Screen name="AnimatedIntro" component={AnimatedIntroScreen} />
+
                 <Stack.Screen name="Login" component={LoginScreen} />
                 <Stack.Screen name="MainTabs" component={TabNavigator} />
                 <Stack.Screen name="OrderDetails" component={OrderDetailsScreen} />
