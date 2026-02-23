@@ -12,12 +12,11 @@ import { StatusBar } from 'react-native';
 
 import LoginScreen from '../screens/LoginScreen';
 import TabNavigator from './TabNavigator';
-import OrderDetailsScreen from '../screens/OrderDetailsScreen';
-import VerifyScreen from '../screens/VerifyScreen';
+import DeliveryExecutionScreen from '../screens/DeliveryExecutionScreen';
 import HelpSupportScreen from '../screens/HelpSupportScreen';
 import DeliverySuccessScreen from '../screens/DeliverySuccessScreen';
-// import SplashScreen from '../screens/SplashScreen';
-import AnimatedIntroScreen from '../screens/AnimatedIntroScreen';
+import SplashIntroScreen from '../screens/SplashIntroScreen';
+import BootSplash from 'react-native-bootsplash';
 
 // Removed in Phase 1:
 // import LocationCheckScreen from '../screens/LocationCheckScreen';
@@ -29,16 +28,15 @@ const Stack = createNativeStackNavigator();
 
 const RootNavigator = () => {
     return (
-        <NavigationContainer>
+        <NavigationContainer onReady={() => BootSplash.hide({ fade: true })}>
             <StatusBar barStyle="light-content" backgroundColor={colors.background} />
 
-            <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="AnimatedIntro">
-                <Stack.Screen name="AnimatedIntro" component={AnimatedIntroScreen} />
+            <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="Login">
+                <Stack.Screen name="SplashIntro" component={SplashIntroScreen} />
 
                 <Stack.Screen name="Login" component={LoginScreen} />
                 <Stack.Screen name="MainTabs" component={TabNavigator} />
-                <Stack.Screen name="OrderDetails" component={OrderDetailsScreen} />
-                <Stack.Screen name="Verify" component={VerifyScreen} />
+                <Stack.Screen name="DeliveryExecution" component={DeliveryExecutionScreen} />
                 <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
                 <Stack.Screen name="DeliverySuccess" component={DeliverySuccessScreen} />
                 {/* 

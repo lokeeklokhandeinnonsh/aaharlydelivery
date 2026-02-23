@@ -1,7 +1,7 @@
 /**
  * Delivery API Service
  * 
- * API functions for GPS-based delivery verification.
+ * API functions for manual delivery execution.
  */
 
 import apiClient from './apiClient';
@@ -26,13 +26,6 @@ export type DeliveryStatus =
 // Request Types
 // ============================================================================
 
-export interface VerifyLocationRequest {
-    deliveryId: string;
-    currentLatitude: number;
-    currentLongitude: number;
-    accuracy?: number;
-}
-
 export interface CompleteDeliveryRequest {
     completionLatitude: number;
     completionLongitude: number;
@@ -51,14 +44,6 @@ export interface NearbyDeliveriesQuery {
 // ============================================================================
 // Response Types
 // ============================================================================
-
-export interface VerifyLocationResponse {
-    verified: boolean;
-    distance: number;
-    threshold: number;
-    message: string;
-    canComplete: boolean;
-}
 
 export interface CompleteDeliveryResponse {
     success: boolean;
@@ -102,15 +87,15 @@ export interface NearbyDeliveriesResponse {
 // ============================================================================
 
 /**
- * Verify that delivery partner is within acceptable distance of delivery address.
- * 
- * @param data - Location verification request with GPS coordinates
- * @returns Verification result with distance info
+ * Update the status of a delivery (e.g., to HANDED_OVER)
  */
-export async function verifyLocation(data: VerifyLocationRequest): Promise<VerifyLocationResponse> {
-    const response = await apiClient.post<VerifyLocationResponse>(
-        '/vendor/delivery/verify-location',
-        data
+export async function updateDeliveryStatus(
+    deliveryId: string,
+    status: DeliveryStatus
+): Promise<any> {
+    const response = await apiClient.patch(
+        `/vendor/delivery/${deliveryId}/status`,
+        { status }
     );
     return response.data;
 }
@@ -174,14 +159,4 @@ export function formatDistance(meters: number): string {
         return `${Math.round(meters)}m`;
     }
     return `${(meters / 1000).toFixed(1)}km`;
-}
-
-/**
- * Get user-friendly message for verification status.
- */
-export function getVerificationMessage(response: VerifyLocationResponse): string {
-    if (response.verified) {
-        return 'Location verified! You can complete the delivery.';
-    }
-    return `You are ${formatDistance(response.distance)} away. Get closer to verify.`;
 }

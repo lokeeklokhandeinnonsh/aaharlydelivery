@@ -120,11 +120,17 @@ const DashboardScreen = () => {
         }, []) // Stable callback
     );
 
+    /* ---------------- Handlers ---------------- */
+    const handleStartDelivery = (order: NearbyDeliveryItem) => {
+        navigation.navigate('DeliveryExecution', {
+            delivery: order,
+        });
+    };
+
     /* ---------------- Stats Calculation ---------------- */
     const stats = {
-        total: deliveries.length,
-        pending: deliveries.filter(d => d.status === 'PENDING' || d.status === 'READY_TO_DISPATCH').length,
-        done: deliveries.filter(d => d.status === 'DELIVERED').length
+        pendingCount: deliveries.filter(d => d.status === 'PENDING' || d.status === 'READY_TO_DISPATCH').length,
+        completedCount: deliveries.filter(d => d.status === 'DELIVERED').length
     };
 
     /* ---------------- Stats Card ---------------- */
@@ -172,7 +178,10 @@ const DashboardScreen = () => {
                                     styles.pendingText,
                                     { color: item.priority === 'URGENT' ? colors.error : '#f59e0b' }
                                 ]}>
-                                    {item.status.replace(/_/g, ' ')}
+                                    {item.status === 'HANDED_OVER' ? 'Out for Delivery' :
+                                        item.status === 'DELIVERED' ? 'Completed' :
+                                            (item.status === 'PENDING' || item.status === 'PREPARING') ? 'Pending Delivery' :
+                                                item.status.replace(/_/g, ' ')}
                                 </Text>
                             </View>
                         </View>
@@ -217,14 +226,10 @@ const DashboardScreen = () => {
 
                     <TouchableOpacity
                         style={styles.verifyBtn}
-                        onPress={() =>
-                            navigation.navigate('OrderDetails', {
-                                delivery: item,
-                            })
-                        }
+                        onPress={() => handleStartDelivery(item)}
                     >
-                        <Text style={styles.verifyText}>Verify Delivery</Text>
-                        <Icon name="qrcode-scan" size={20} color="#000" />
+                        <Text style={styles.verifyText}>Start Delivery</Text>
+                        <Icon name="arrow-right" size={20} color="#000" />
                     </TouchableOpacity>
 
                     <TouchableOpacity style={styles.callBtn}>
@@ -263,9 +268,8 @@ const DashboardScreen = () => {
 
             {/* Stats */}
             <View style={styles.statsRow}>
-                {renderStat('TOTAL', stats.total.toString(), '#999')}
-                {renderStat('PENDING', stats.pending.toString(), '#f59e0b')}
-                {renderStat('COMPLETED', stats.done.toString(), '#22c55e')}
+                {renderStat('PENDING', stats.pendingCount.toString(), '#f59e0b')}
+                {renderStat('COMPLETED', stats.completedCount.toString(), '#22c55e')}
             </View>
 
             {/* Section */}
@@ -283,15 +287,15 @@ const DashboardScreen = () => {
             ) : error ? (
                 <View style={styles.centerBox}>
                     <Icon name="alert-circle-outline" size={48} color={colors.error} />
-                    <Text style={styles.errorText}>{error}</Text>
+                    <Text style={styles.errorText}>Unable to load deliveries. Please try again.</Text>
                     <TouchableOpacity style={styles.retryBtn} onPress={() => fetchData()}>
                         <Text style={styles.retryText}>Retry</Text>
                     </TouchableOpacity>
                 </View>
             ) : deliveries.length === 0 ? (
                 <View style={styles.centerBox}>
-                    <Icon name="moped" size={48} color="#555" />
-                    <Text style={styles.emptyText}>No deliveries assigned nearby.</Text>
+                    <Icon name="map-marker-outline" size={32} color="#555" />
+                    <Text style={styles.emptyText}>No active deliveries nearby</Text>
                     <TouchableOpacity style={styles.retryBtn} onPress={() => fetchData()}>
                         <Text style={styles.retryText}>Refresh</Text>
                     </TouchableOpacity>
@@ -365,6 +369,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         gap: 12,
         marginBottom: 28,
+        justifyContent: 'center',
     },
 
     statCard: {

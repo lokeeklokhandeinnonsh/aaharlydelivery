@@ -10,6 +10,7 @@ const App = () => {
     const fontName = 'PlusJakartaSans-Regular';
     GlobalFont.applyGlobal(fontName);
   }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
