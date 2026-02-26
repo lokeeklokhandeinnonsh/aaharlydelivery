@@ -146,7 +146,40 @@ const DashboardScreen = () => {
     );
 
     /* ---------------- Order Card ---------------- */
-    const renderOrder = ({ item }: { item: NearbyDeliveryItem }) => (
+    const renderOrder = ({ item }: { item: NearbyDeliveryItem }) => {
+        let distance: number | null = null;
+        const itemLat = (item as any).latitude || (item as any).address?.latitude;
+        const itemLng = (item as any).longitude || (item as any).address?.longitude;
+
+        if (userLocation && itemLat && itemLng) {
+            const R = 6371; // Radius of the earth in km
+            const dLat = (itemLat - userLocation.latitude) * Math.PI / 180;
+            const dLon = (itemLng - userLocation.longitude) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(userLocation.latitude * Math.PI / 180) * Math.cos(itemLat * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            distance = R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+        } else if (item.distance != null && item.distance < 10000) {
+            distance = item.distance;
+        }
+
+        const formattedDistance = distance == null || isNaN(distance)
+            ? 'Distance unavailable'
+            : distance < 1
+                ? `${Math.round(distance * 1000)}m away`
+                : `${distance.toFixed(1)} km away`;
+
+        const addressText = (() => {
+            const addrObj: any = item.address || item;
+            const parts = [
+                addrObj.address_line_1 || addrObj.street,
+                addrObj.city,
+                addrObj.pincode
+            ].filter(Boolean);
+            return parts.length > 0 ? parts.join(', ') : null;
+        })();
+
+        return (
         <View style={styles.orderCard}>
 
             {/* Glass Effect */}
@@ -208,14 +241,14 @@ const DashboardScreen = () => {
                     <View style={styles.detailRow}>
                         <Icon name="map-marker" size={16} color="#999" />
                         <Text style={styles.detailText} numberOfLines={1}>
-                            {item.address.street}
+                            {addressText || 'Address unavailable'}
                         </Text>
                     </View>
 
                     <View style={styles.detailRow}>
                         <Icon name="navigation" size={16} color={colors.primary} />
                         <Text style={[styles.detailText, { color: colors.primary, fontFamily: fonts.bold }]}>
-                            {formatDistance(item.distance)} away
+                            {formattedDistance}
                         </Text>
                     </View>
 
@@ -240,7 +273,8 @@ const DashboardScreen = () => {
 
             </View>
         </View>
-    );
+        );
+    };
 
     /* ---------------- Main UI ---------------- */
     return (
@@ -250,8 +284,8 @@ const DashboardScreen = () => {
             {/* Header */}
             <View style={styles.header}>
                 <View>
-                    <Text style={styles.title}>Welcome Back</Text>
-                    <Text style={styles.date}>{user?.name || 'Partner'}</Text>
+                    <Text style={styles.title}>{user?.name || 'Vendor Name'}</Text>
+                    <Text style={styles.date}>Ravet Kitchen</Text>
                 </View>
 
                 {/* Profile */}
