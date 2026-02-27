@@ -3,7 +3,7 @@ import { useAuthStore } from '../../store/authStore';
 
 // Base URL for the backend API
 // Use http://10.0.2.2:4000/api/v1 for Android Emulator
-export const BASE_URL = 'http://192.168.1.3:4000/api/v1'
+export const BASE_URL = 'https://api.aaharly.com/api/v1'
 const apiClient = axios.create({
     baseURL: BASE_URL,
     headers: {
