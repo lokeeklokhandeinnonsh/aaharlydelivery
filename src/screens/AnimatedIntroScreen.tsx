@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions, StatusBar } from 'react-native';
-import BootSplash from 'react-native-bootsplash';
 import Animated, {
     useSharedValue,
     useAnimatedStyle,
@@ -46,8 +45,6 @@ const AnimatedIntroScreen = () => {
 
     useEffect(() => {
         const sequence = async () => {
-            // Hide native splash immediately
-            await BootSplash.hide({ fade: true });
 
             // 1. Fade In Scooter (0ms - 300ms)
             opacity.value = withTiming(1, { duration: 300 });

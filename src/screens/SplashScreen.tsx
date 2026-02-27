@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Animated, Easing, Dimensions } from 'react-native';
-import BootSplash from 'react-native-bootsplash';
 import Logo from '../../assets/logoinsplash.svg';
 import SplashBackground from '../../assets/splash.svg';
 
@@ -20,9 +19,7 @@ const SplashScreen = ({ navigation }: any) => {
             if (finished && !isHidingRef.current) {
                 isHidingRef.current = true;
                 setTimeout(() => {
-                    BootSplash.hide({ fade: true }).then(() => {
-                        navigation.replace('Home');
-                    });
+                    navigation.replace('Home');
                 }, 150);
             }
         });

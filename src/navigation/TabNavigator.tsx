@@ -60,6 +60,7 @@ const TabNavigator = () => {
                     )
                 }}
             />
+            {/* 
             <Tab.Screen
                 name="Map"
                 component={PlaceholderScreen}
@@ -69,6 +70,7 @@ const TabNavigator = () => {
                     )
                 }}
             />
+            */}
             <Tab.Screen
                 name="Settings"
                 component={ProfileScreen}

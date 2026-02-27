@@ -16,7 +16,7 @@ import DeliveryExecutionScreen from '../screens/DeliveryExecutionScreen';
 import HelpSupportScreen from '../screens/HelpSupportScreen';
 import DeliverySuccessScreen from '../screens/DeliverySuccessScreen';
 import SplashIntroScreen from '../screens/SplashIntroScreen';
-import BootSplash from 'react-native-bootsplash';
+
 
 // Removed in Phase 1:
 // import LocationCheckScreen from '../screens/LocationCheckScreen';
@@ -28,10 +28,10 @@ const Stack = createNativeStackNavigator();
 
 const RootNavigator = () => {
     return (
-        <NavigationContainer onReady={() => BootSplash.hide({ fade: true })}>
+        <NavigationContainer>
             <StatusBar barStyle="light-content" backgroundColor={colors.background} />
 
-            <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="Login">
+            <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="SplashIntro">
                 <Stack.Screen name="SplashIntro" component={SplashIntroScreen} />
 
                 <Stack.Screen name="Login" component={LoginScreen} />

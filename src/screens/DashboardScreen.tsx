@@ -10,7 +10,7 @@ import {
     ActivityIndicator,
 } from 'react-native';
 
-import LinearGradient from 'react-native-linear-gradient';
+// import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import { Platform } from 'react-native';
@@ -63,7 +63,7 @@ const DashboardScreen = () => {
 
             if (!loc) {
                 if (locationError) {
-                    throw new Error(locationError.message || 'Location access required');
+                    throw new Error((locationError as any).message || 'Location access required');
                 }
                 throw new Error('Unable to get current location');
             }
@@ -129,8 +129,8 @@ const DashboardScreen = () => {
 
     /* ---------------- Stats Calculation ---------------- */
     const stats = {
-        pendingCount: deliveries.filter(d => d.status === 'PENDING' || d.status === 'READY_TO_DISPATCH').length,
-        completedCount: deliveries.filter(d => d.status === 'DELIVERED').length
+        pendingCount: (deliveries || []).filter(d => d?.status === 'PENDING' || d?.status === 'READY_TO_DISPATCH').length,
+        completedCount: (deliveries || []).filter(d => d?.status === 'DELIVERED').length
     };
 
     /* ---------------- Stats Card ---------------- */
@@ -222,7 +222,7 @@ const DashboardScreen = () => {
 
                     <View style={styles.idBadge}>
                         <Text style={styles.idText}>
-                            #{item.id.slice(-4)}
+                            #{item.id ? item.id.slice(-4) : '????'}
                         </Text>
                     </View>
 
@@ -241,7 +241,7 @@ const DashboardScreen = () => {
                     <View style={styles.detailRow}>
                         <Icon name="map-marker" size={16} color="#999" />
                         <Text style={styles.detailText} numberOfLines={1}>
-                            {addressText || 'Address unavailable'}
+                            {item.address?.street || 'No address provided'}
                         </Text>
                     </View>
 
@@ -289,15 +289,14 @@ const DashboardScreen = () => {
                 </View>
 
                 {/* Profile */}
-                <LinearGradient
-                    colors={[colors.primary, '#FFB36B']}
-                    style={styles.profileRing}
+                <View
+                    style={[styles.profileRing, { backgroundColor: '#EA580C' }]}
                 >
                     <Image
                         source={{ uri: 'https://i.pravatar.cc/200' }}
                         style={styles.profilePic}
                     />
-                </LinearGradient>
+                </View>
             </View>
 
             {/* Stats */}
