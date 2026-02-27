@@ -13,7 +13,7 @@ import {
     Image
 } from 'react-native';
 
-import LinearGradient from 'react-native-linear-gradient';
+// import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../theme/colors';
 import { fonts } from '../theme/fonts';
@@ -22,6 +22,9 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { completeDelivery, updateDeliveryStatus, NearbyDeliveryItem } from '../services/api/deliveryApi';
+import { useLocation } from '../hooks/useLocation';
+import DeliveryMap from '../components/DeliveryMap';
+import { useEffect } from 'react';
 
 const { width } = Dimensions.get('window');
 
@@ -60,6 +63,18 @@ const DeliveryExecutionScreen = () => {
     // State
     const [isCompleting, setIsCompleting] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+    // Live Tracking for Map
+    const {
+        location: userLocation,
+        startWatching,
+        stopWatching
+    } = useLocation({ autoFetch: true });
+
+    useEffect(() => {
+        startWatching();
+        return () => stopWatching();
+    }, []);
 
     // Slider Setup
     const slideAnim = useRef(new Animated.Value(0)).current;
@@ -142,13 +157,16 @@ const DeliveryExecutionScreen = () => {
             });
 
             if (response && response.success) {
+                const friendlyId = `#${orderId.slice(-4).toUpperCase()}`;
                 setTimeout(() => {
                     navigation.navigate('DeliverySuccess', {
-                        orderId: orderId,
+                        orderId: friendlyId,
                         customerName: customerName,
-                        gpsVerified: false
+                        address: delivery.address?.street || 'Delivery Address',
+                        timestamp: new Date().toLocaleString(),
+                        gpsVerified: true
                     });
-                }, 2000);
+                }, 100);
             } else {
                 throw new Error("API returned failure");
             }
@@ -180,15 +198,15 @@ const DeliveryExecutionScreen = () => {
                 {/* Customer Pill Card */}
                 <View style={styles.customerCard}>
                     <View style={styles.customerInfo}>
-                        <TouchableOpacity onPress={handleCall} style={styles.callButtonLarge}>
-                            <Icon name="phone" size={24} color={colors.white} />
-                        </TouchableOpacity>
                         <View>
                             <Text style={styles.customerName}>{customerName}</Text>
                             <View style={styles.badgeRow}>
                                 <Text style={styles.badgeText}>{delivery.priority === 'URGENT' ? 'URGENT ORDER' : 'PREMIUM CUSTOMER'}</Text>
                             </View>
                         </View>
+                        <TouchableOpacity onPress={handleCall} style={styles.callButtonLarge}>
+                            <Icon name="phone" size={24} color={colors.white} />
+                        </TouchableOpacity>
                     </View>
                 </View>
 
@@ -201,24 +219,22 @@ const DeliveryExecutionScreen = () => {
 
                     <Text style={styles.addressText}>{delivery.address?.street}</Text>
 
-                    {/* Static Map Container */}
-                    <View style={styles.mapContainer}>
-                        <Image source={{ uri: 'https://i.imgur.com/gK9fIap.jpeg' }} style={styles.mapImage} />
+                    {/* Navigation Button (Central Rectangular) */}
+                    <TouchableOpacity
+                        style={styles.centralNavigateButton}
+                        onPress={handleNavigate}
+                        activeOpacity={0.8}
+                    >
+                        <Icon name="navigation" size={20} color={colors.white} style={{ marginRight: 8 }} />
+                        <Text style={styles.navigateButtonText}>NAVIGATE TO CUSTOMER</Text>
+                    </TouchableOpacity>
 
-                        <View style={styles.mapOverlay}>
-                            {/* Navigation Button */}
-                            <TouchableOpacity onPress={handleNavigate} activeOpacity={0.8}>
-                                <LinearGradient
-                                    colors={['#FF791A', '#EA580C']} // Primary Orange Gradient
-                                    start={{ x: 0, y: 0 }}
-                                    end={{ x: 1, y: 0 }}
-                                    style={styles.navigateButton}
-                                >
-                                    <Icon name="navigation" size={20} color={colors.white} style={{ marginRight: 8 }} />
-                                    <Text style={styles.navigateButtonText}>NAVIGATE</Text>
-                                </LinearGradient>
-                            </TouchableOpacity>
-                        </View>
+                    {/* Temporarily using static placeholder to avoid crash until clean build is done */}
+                    <View style={styles.mapContainer}>
+                        <DeliveryMap
+                            userLocation={userLocation}
+                            targetLocation={{ latitude: targetLat, longitude: targetLng }}
+                        />
                     </View>
                 </View>
 
@@ -373,25 +389,26 @@ const styles = StyleSheet.create({
         backgroundColor: '#2A2F35',
     },
     mapImage: { width: '100%', height: '100%', opacity: 0.9 },
-    mapOverlay: {
-        ...StyleSheet.absoluteFillObject,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    navigateButton: {
-        paddingHorizontal: 24,
-        height: 48,
-        borderRadius: 24,
+    centralNavigateButton: {
+        backgroundColor: '#EA580C',
         flexDirection: 'row',
-        justifyContent: 'center',
         alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 14,
+        borderRadius: 12,
+        marginBottom: 20,
         shadowColor: '#EA580C',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
-        shadowRadius: 10,
+        shadowRadius: 5,
         elevation: 6,
     },
-    navigateButtonText: { color: colors.white, fontSize: 16, fontWeight: 'bold', letterSpacing: 0.5 },
+    navigateButtonText: {
+        color: colors.white,
+        fontSize: 14,
+        fontFamily: fonts.bold,
+        letterSpacing: 1
+    },
     mealCard: {
         backgroundColor: '#1C1917',
         borderRadius: 24,

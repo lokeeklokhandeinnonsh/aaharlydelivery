@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, KeyboardAvoidingView, Platform, TouchableOpacity, ActivityIndicator } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
+// import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../theme/colors';
 import { fonts } from '../theme/fonts';
@@ -100,11 +100,8 @@ const LoginScreen = () => {
                     </View>
 
                     <TouchableOpacity onPress={handleLogin} disabled={loading}>
-                        <LinearGradient
-                            colors={[colors.primary, colors.primaryGradientEnd]}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
-                            style={styles.button}
+                        <View
+                            style={[styles.button, { backgroundColor: '#EA580C' }]}
                         >
                             {loading ? (
                                 <ActivityIndicator color={colors.white} />
@@ -114,7 +111,7 @@ const LoginScreen = () => {
                                     <Icon name="arrow-right" size={20} color={colors.white} style={styles.buttonIcon} />
                                 </>
                             )}
-                        </LinearGradient>
+                        </View>
                     </TouchableOpacity>
                 </View>
 

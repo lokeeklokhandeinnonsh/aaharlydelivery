@@ -2,7 +2,8 @@ import React, { useEffect, useRef } from "react";
 import { StyleSheet, Animated, Dimensions, StatusBar } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, CommonActions } from "@react-navigation/native";
-import BootSplash from "react-native-bootsplash";
+import { useAuthStore } from "../store/authStore";
+
 
 // Logo copied from the main app
 import LogoSvg from "../../assets/splash/aaharlyName.svg";
@@ -17,8 +18,7 @@ const SplashIntroScreen = () => {
     const translateXAnim = useRef(new Animated.Value(100)).current;
 
     useEffect(() => {
-        // Hide bootsplash once the JS splash maps directly on top
-        BootSplash.hide({ fade: true });
+
 
         // Parallel animation matching the main app
         Animated.parallel([
@@ -36,9 +36,8 @@ const SplashIntroScreen = () => {
 
         // Timeout duration matches exactly 5000ms from main app
         const timeout = setTimeout(() => {
-            // Keeping delivery app Auth logic pattern mock intact
-            const hasToken = false;
-            const targetScreen = hasToken ? 'MainTabs' : 'Login';
+            const { isAuthenticated } = useAuthStore.getState();
+            const targetScreen = isAuthenticated ? 'MainTabs' : 'Login';
 
             // Navigation Reset
             navigation.dispatch(

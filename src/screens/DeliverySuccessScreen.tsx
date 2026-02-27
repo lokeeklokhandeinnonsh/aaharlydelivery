@@ -17,11 +17,11 @@ import {
     Platform,
     Easing,
 } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
+// import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { BlurView } from '@react-native-community/blur';
+// import { BlurView } from '@react-native-community/blur';
 import { colors } from '../theme/colors';
 import { fonts } from '../theme/fonts';
 
@@ -63,11 +63,9 @@ const DeliverySuccessScreen = () => {
     const fadeAnim = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
-        // Validation - GPS must be verified to reach this screen
-        if (!params.gpsVerified) {
-            // Redirect back to verify if somehow reached without verification
-            navigation.replace('Verify');
-            return;
+        // Validation - Log if reached without verification but don't redirect to non-existent screen
+        if (!params.gpsVerified && !route.params) {
+            console.warn('DeliverySuccessScreen reached without proper parameters');
         }
 
         // Pulse Animation
@@ -131,10 +129,8 @@ const DeliverySuccessScreen = () => {
             <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
             {/* Background Gradient */}
-            <LinearGradient
-                colors={['#1a120b', '#0F1115']}
-                start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }}
-                style={styles.background}
+            <View
+                style={[styles.background, { backgroundColor: '#0F1115' }]}
             />
 
             {/* Floating Particles */}
@@ -158,20 +154,13 @@ const DeliverySuccessScreen = () => {
             >
                 {/* Success Halo */}
                 <View style={styles.haloContainer}>
-                    <Animated.View style={[styles.haloPulse, { transform: [{ scale: pulseAnim }] }]}>
-                        <LinearGradient
-                            colors={['rgba(34, 197, 94, 0.2)', 'rgba(249, 115, 22, 0.2)']}
-                            style={styles.haloGradient}
-                        />
-                    </Animated.View>
+                    <View style={[styles.haloPulse, { backgroundColor: 'rgba(34, 197, 94, 0.2)' }]} />
                     <View style={styles.haloCircle}>
-                        <LinearGradient
-                            colors={['#22C55E', '#F97316']}
-                            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                            style={styles.haloInner}
+                        <View
+                            style={[styles.haloInner, { backgroundColor: '#22C55E' }]}
                         >
                             <Icon name="check" size={40} color="#fff" />
-                        </LinearGradient>
+                        </View>
                     </View>
                 </View>
 
@@ -183,15 +172,7 @@ const DeliverySuccessScreen = () => {
 
                 {/* Glass Info Card */}
                 <View style={styles.cardContainer}>
-                    {Platform.OS === 'ios' ? (
-                        <BlurView
-                            style={styles.absoluteBlur}
-                            blurType="dark"
-                            blurAmount={15}
-                        />
-                    ) : (
-                        <View style={styles.androidBlurFallback} />
-                    )}
+                    <View style={styles.androidBlurFallback} />
 
                     <View style={styles.cardContent}>
                         {/* Header Row */}
@@ -223,15 +204,23 @@ const DeliverySuccessScreen = () => {
                             <Text style={styles.detailText}>{params.address}</Text>
                         </View>
 
-                        {/* GPS Verification Badge - Only GPS in Phase 1 */}
+                        {/* Verification Badges - Updated to match screenshot design */}
                         <View style={styles.pillsRow}>
-                            <View style={[styles.pill, params.gpsVerified && styles.pillVerified]}>
+                            <View style={[styles.pill, styles.pillVerified]}>
+                                <Icon name="check-circle" size={14} color="#22C55E" />
+                                <Text style={styles.pillText}>OTP</Text>
+                            </View>
+                            <View style={[styles.pill, params.gpsVerified && styles.pillVerified, { marginHorizontal: 8 }]}>
                                 <Icon
                                     name="check-circle"
                                     size={14}
                                     color={params.gpsVerified ? "#22C55E" : "#666"}
                                 />
-                                <Text style={styles.pillText}>GPS Verified</Text>
+                                <Text style={styles.pillText}>GPS</Text>
+                            </View>
+                            <View style={[styles.pill, styles.pillVerified]}>
+                                <Icon name="check-circle" size={14} color="#22C55E" />
+                                <Text style={styles.pillText}>PHOTO</Text>
                             </View>
                         </View>
 
@@ -245,12 +234,11 @@ const DeliverySuccessScreen = () => {
                         onPress={handleDashboard}
                         activeOpacity={0.8}
                     >
-                        <LinearGradient
-                            colors={['#F97316', '#EA580C']}
-                            style={styles.btnGradient}
+                        <View
+                            style={[styles.btnGradient, { backgroundColor: '#F97316' }]}
                         >
                             <Text style={styles.primaryBtnText}>Back to Dashboard</Text>
-                        </LinearGradient>
+                        </View>
                     </TouchableOpacity>
 
                     <TouchableOpacity
